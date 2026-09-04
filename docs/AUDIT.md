@@ -31,7 +31,7 @@ sustained emergency patch process, and independent security review.
 | Renderer targets | New Tab, Voyager UI, Voyager overlay |
 | Startup error log | None |
 | Electron fuses | Run-as-Node off; Node flags/inspect off; cookie encryption, ASAR integrity, ASAR-only loading on |
-| Source branding scan | No Open Search, Kia, or Dia references in project-owned source/assets |
+| Source branding scan | No superseded product or competitor branding in project-owned source/assets |
 
 ## Changes made during the audit
 
@@ -140,25 +140,21 @@ Windows scaling, narrow-window stress tests, and user testing of the vertical ta
 model. Those tests require human assistive-technology and workflow judgment and
 are not represented by the automated suite.
 
-## Security comparison
+## Security baseline comparison
 
-| Area | Voyager now | Chrome | Dia | Zen |
-|---|---|---|---|---|
-| Engine isolation | Current Electron/Chromium, sandboxed renderers, strict IPC and fuses | Mature Chromium multi-process browser security and site isolation | Chromium-based, with vendor-stated rapid upstream integration | Firefox-based browser security controls |
-| Updates | Manual unsigned installer | Signed automatic update channel | Vendor-stated aggressive update cadence | Project states Firefox security updates generally land in 0–72 hours |
-| Malicious-site defense | Ad/tracker blocking; no reputation service | Safe Browsing and download warnings | Vendor documents Chromium security plus internal review | Firefox phishing/malware protection, OCSP, and HTTPS-only options |
-| AI/privacy | Local browser data, explicit context, OS-encrypted secrets, action approval | Browser is mature; Google-service data choices vary by setting | Local encrypted browser data, but AI requests/context are processed by Dia services | No equivalent built-in browser agent in the compared product |
-| Assurance | Internal audit and tests only | Large security team, mature response ecosystem | Independent assessments and HackerOne program are publicly described | Public advisories and a smaller open-source project |
+| Area | Voyager now | Mature browser baseline |
+|---|---|---|
+| Engine isolation | Current Electron/Chromium, sandboxed renderers, strict IPC and fuses | Multi-process isolation backed by a large browser-security organization |
+| Updates | Manual unsigned installer | Signed automatic updates with staged rollout and emergency response |
+| Malicious-site defense | Ad/tracker blocking; no reputation service | Phishing, malware-URL, and risky-download reputation warnings |
+| AI/privacy | Local browser data, explicit context, OS-encrypted secrets, action approval | Varies by product and enabled cloud services |
+| Assurance | Internal audit and tests | Independent testing, disclosure program, and sustained incident response |
 
 This table is architectural, not a security score. Voyager's strong local-data
 and approval model does not compensate for missing phishing intelligence or an
-unproven patch pipeline. Chrome currently provides the strongest baseline for
-exploit response, site isolation, update distribution, and malicious-site
-reputation. Dia inherits a Chromium foundation and documents external testing
-and a bounty program, while its server-side AI architecture creates a different
-privacy tradeoff. Zen builds on Firefox and exposes stronger privacy/network
-controls than Voyager currently does, although its public advisories show that
-its own update and browser integration code also needs scrutiny.
+unproven patch pipeline. A mature browser currently provides stronger exploit
+response, update distribution, malicious-site reputation, and independent
+assurance.
 
 ## Remaining risk register and roadmap
 
@@ -196,15 +192,12 @@ its own update and browser integration code also needs scrutiny.
 4. Complete accessibility and scaling validation across Windows, macOS, and
    Linux, including reduced motion and forced-colors mode.
 
-## Sources used for the comparison
+## Security engineering references
 
 - Electron security guidance: <https://www.electronjs.org/docs/latest/tutorial/security>
 - Electron process sandbox: <https://www.electronjs.org/docs/latest/tutorial/sandbox>
 - Electron releases and support timeline: <https://releases.electronjs.org/release/v44.2.0>, <https://www.electronjs.org/docs/latest/tutorial/electron-timelines>
 - Chromium site isolation and security principles: <https://www.chromium.org/Home/chromium-security/site-isolation/>, <https://www.chromium.org/Home/chromium-security/core-principles/>
-- Chrome Safe Browsing and updates: <https://support.google.com/chrome/answer/13844634>, <https://support.google.com/chrome/answer/95414>
-- Dia security: <https://www.diabrowser.com/security>
-- Zen security and advisories: <https://docs.zen-browser.app/security>, <https://github.com/zen-browser/desktop/security>
 
 ## Distribution note
 
