@@ -2,7 +2,6 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { VoyagerWindow } from '../browser/window'
 import { getSettings } from '../store/settings'
 import { browserTools, serverTools } from './tools'
-import { mcp } from './mcp'
 
 /**
  * A compact, non-streaming tool loop for background work (briefs, decks) where
@@ -15,20 +14,17 @@ export async function oneShot(
   opts: { system: string; maxRounds?: number; useConnectors?: boolean; effortOverride?: string } = { system: '' }
 ): Promise<string> {
   const settings = getSettings()
+  const profileId = win.profile.id
+  const manager = win.tabs
+  const valid = (): boolean => win.profile.id === profileId && win.tabs === manager && !win.window.isDestroyed()
   if (!settings.ai.apiKey) throw new Error('No Anthropic API key set.')
   const client = new Anthropic({ apiKey: settings.ai.apiKey, maxRetries: 2 })
 
   const local = browserTools(win).filter((t) => t.actionClass === 'read')
   const localByName = new Map(local.map((t) => [t.definition.name, t]))
-  const connectors = opts.useConnectors
-    ? mcp.anthropicTools().filter((t) => t.actionClass === 'read')
-    : []
 
   const tools: Anthropic.ToolUnion[] = [
     ...local.map((t) => t.definition),
-    ...connectors.map((t) => ({
-      name: t.name, description: t.description, input_schema: t.input_schema
-    }) as Anthropic.Tool),
     ...serverTools()
   ]
 
@@ -37,6 +33,7 @@ export async function oneShot(
   const max = opts.maxRounds ?? 12
 
   for (let i = 0; i < max; i++) {
+    if (!valid()) throw new Error('The AI task was cancelled because its window or profile changed.')
     const res = await client.messages.create({
       model: settings.ai.model,
       max_tokens: 16000,
@@ -46,6 +43,7 @@ export async function oneShot(
       tools,
       messages
     })
+    if (!valid()) throw new Error('The AI task was cancelled because its window or profile changed.')
 
     if (res.stop_reason === 'pause_turn') {
       messages.push({ role: 'assistant', content: res.content })
@@ -66,7 +64,9 @@ export async function oneShot(
       let out: string
       try {
         const tool = localByName.get(use.name)
-        out = tool ? await tool.run(use.input) : await mcp.call(use.name, use.input)
+        // The model is untrusted: advertising a subset does not enforce it.
+        // Connector names/descriptions cannot establish read-only authority.
+        out = tool ? await tool.run(use.input) : 'Error: this tool is not allowed in background tasks.'
       } catch (err) {
         out = `Error: ${err instanceof Error ? err.message : String(err)}`
       }

@@ -28,7 +28,7 @@ describe('built-in tools', () => {
   })
 
   it('classifies reversible tab and memory changes as locally reversible', () => {
-    for (const n of ['open_tab', 'close_tab', 'group_tabs', 'split_view', 'remember', 'bookmark'])
+    for (const n of ['close_tab', 'group_tabs', 'split_view', 'bookmark'])
       expect(byName.get(n)?.actionClass, n).toBe('local_reversible')
   })
 
@@ -38,11 +38,11 @@ describe('built-in tools', () => {
     expect(requiresApproval(forget!.actionClass, DEFAULT_SETTINGS.approvals.auto)).toBe(true)
   })
 
-  it('stops before typing into a page — drafting is not sending', () => {
+  it('treats page insertion as outbound because sites can autosave', () => {
     // README's promise: `insert_text` writes into a field and never submits, and
     // it is not in the shipped auto-approve list.
     const t = byName.get('insert_text')
-    expect(t?.actionClass).toBe('external_draft')
+    expect(t?.actionClass).toBe('external_write')
     expect(requiresApproval(t!.actionClass, DEFAULT_SETTINGS.approvals.auto)).toBe(true)
   })
 

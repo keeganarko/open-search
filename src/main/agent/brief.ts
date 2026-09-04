@@ -3,7 +3,6 @@ import type { VoyagerWindow } from '../browser/window'
 import type { Brief, BriefSection } from '@shared/types'
 import { getSettings } from '../store/settings'
 import { oneShot, parseJsonBlock } from './oneshot'
-import { mcp } from './mcp'
 import * as db from '../store/db'
 
 const SYSTEM = `You are assembling the user's morning brief inside their browser.
@@ -26,15 +25,10 @@ export function existingBrief(profileId: string): Brief | null {
 export async function generateBrief(win: VoyagerWindow): Promise<Brief> {
   const settings = getSettings()
   const wanted: string[] = []
-  if (settings.brief.includeCalendar) wanted.push("today's calendar events, with their real start times")
-  if (settings.brief.includeMail) wanted.push('unread or unanswered mail that plausibly needs a reply today')
   if (settings.brief.includeTabs) wanted.push('what the user left open and was working on yesterday')
   if (settings.brief.includeReadingList) wanted.push('two or three things from their recent history worth finishing')
 
-  const connectors = mcp.list().filter((s) => s.connected)
-  const connectorNote = connectors.length
-    ? `Connectors available: ${connectors.map((c) => c.name).join(', ')}.`
-    : 'No connectors are set up, so calendar and mail sections will be empty — say so rather than guessing.'
+  const connectorNote = 'Background connector access is disabled. Calendar and mail sections must be empty. Only use the local browser tools available.'
 
   const prompt =
     `Assemble today's morning brief (${todayKey()}).\n\n${connectorNote}\n\n` +
@@ -48,7 +42,7 @@ export async function generateBrief(win: VoyagerWindow): Promise<Brief> {
     `Every item's label must come from a tool result. An empty "sections" array is a valid answer.`
 
   const text = await oneShot(win, prompt, {
-    system: SYSTEM, useConnectors: true, maxRounds: 14
+    system: SYSTEM, maxRounds: 14
   })
 
   const parsed = parseJsonBlock<{ sections: BriefSection[] }>(text)

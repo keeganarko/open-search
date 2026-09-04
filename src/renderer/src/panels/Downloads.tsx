@@ -28,6 +28,7 @@ export default function Downloads({ onClose }: { onClose: () => void }): JSX.Ele
                 ? `${bytes(d.received)}${d.bytes ? ` of ${bytes(d.bytes)}` : ''}`
                 : `${d.state} · ${bytes(d.received)}`}
             </div>
+            {d.reason && <div className="s">{d.reason}</div>}
           </div>
           <span className="when">{relTime(d.startedAt)}</span>
           {d.state === 'completed' && (

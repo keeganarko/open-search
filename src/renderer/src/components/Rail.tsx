@@ -1,3 +1,4 @@
+import VoyagerMark from './VoyagerMark'
 import { useEffect, useState, type DragEvent, type JSX } from 'react'
 import type { FullWindowState, TabState, TabGroup } from '@shared/types'
 
@@ -10,10 +11,10 @@ interface Props {
   onOmnibox: () => void
 }
 
-function splitUrl(url: string): { lock: string; host: string; rest: string } {
+function splitUrl(url: string, secure = false): { lock: string; host: string; rest: string } {
   try {
     const u = new URL(url)
-    const lock = u.protocol === 'https:' ? '🔒' : u.protocol === 'http:' ? '⚠' : ''
+    const lock = secure ? '🔒' : /^https?:$/.test(u.protocol) ? '⚠' : ''
     return {
       lock,
       host: u.hostname.replace(/^www\./, ''),
@@ -39,7 +40,7 @@ export default function Rail({
   const [excluded, setExcluded] = useState(false)
 
   const url = active?.url ?? ''
-  const parts = splitUrl(url)
+  const parts = splitUrl(url, active?.connectionSecure === true)
   const mod = window.voyager.platform === 'darwin' ? '⌘' : 'Ctrl+'
   const shift = window.voyager.platform === 'darwin' ? '⌘⇧' : 'Ctrl+Shift+'
 
@@ -267,7 +268,7 @@ export default function Rail({
           <span className="profiledot" style={{ background: state.profile.color }} />
         </button>
         <button className={`iconbtn${state.sidebarOpen ? ' on' : ''}`} title={`Toggle Voyager (${shift}K)`}
-          onClick={() => window.voyager.layout.sidebar(!state.sidebarOpen)}>◫</button>
+          onClick={() => window.voyager.layout.sidebar(!state.sidebarOpen)}><VoyagerMark /></button>
       </div>
     </div>
   )

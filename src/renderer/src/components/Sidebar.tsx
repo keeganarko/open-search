@@ -1,3 +1,4 @@
+import VoyagerMark from './VoyagerMark'
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import type { ChatMessage, Conversation, ContextRef, Skill } from '@shared/types'
 import type { StreamEvent } from '@shared/ipc'
@@ -136,7 +137,7 @@ export default function Sidebar({ profileId, width, onPanel, toast }: Props): JS
   return (
     <div className="sidebar" style={{ width }}>
       <div className="sidebar-head">
-        <span className="title">Voyager</span>
+        <span className="title" style={{ display: 'flex', alignItems: 'center', gap: 7 }}><VoyagerMark />Voyager</span>
         <button className="iconbtn" title="Chat history" onClick={() => setShowList((s) => !s)}>≡</button>
         <button className="iconbtn" title="New chat" onClick={newChat}>+</button>
         <button className="iconbtn" title="Skills" onClick={() => onPanel('skills')}>✧</button>

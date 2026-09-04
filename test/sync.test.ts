@@ -11,7 +11,10 @@ vi.mock('../src/main/store/db', () => ({
   listSkills: () => [], listMemory: () => [], listBookmarks: () => [], listProfiles: () => [],
   upsertSkill: vi.fn(), addMemory: vi.fn(), addBookmark: vi.fn()
 }))
-vi.mock('../src/main/agent/mcp', () => ({ mcp: { configs: () => [], save: connectors.save } }))
+vi.mock('../src/main/agent/mcp', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../src/main/agent/mcp')>(),
+  mcp: { configs: () => [], save: connectors.save }
+}))
 
 const files = vi.hoisted(() => ({ read: vi.fn(), stat: vi.fn(() => ({ size: 1_024 })) }))
 vi.mock('node:fs/promises', () => ({
@@ -69,7 +72,7 @@ describe('importSync', () => {
 
     expect(settings.set).toHaveBeenCalledTimes(1)
     const applied = settings.set.mock.calls[0][0]
-    expect(applied.ai).not.toHaveProperty('apiKey')
+    expect(applied).not.toHaveProperty('ai')
     expect(applied).not.toHaveProperty('sync')
   })
 
@@ -89,5 +92,32 @@ describe('importSync', () => {
     }, 'p'))
     await importSync('profile-1', '/somewhere/voyager-sync.enc', 'p')
     expect(connectors.save).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }))
+  })
+})
+
+
+describe('sync trust boundaries', () => {
+  beforeEach(() => { settings.set.mockClear(); connectors.save.mockClear() })
+  it('cannot import looser consent, exclusions, approval, or background policies', async () => {
+    files.read.mockResolvedValue(encryptBundle({ ...bundle, settings: {
+      ai: { contextConsent: true }, privacy: { excludedDomains: [] },
+      approvals: { auto: ['external_write'] }, brief: { enabled: true }, appearance: { theme: 'dark' }
+    } }, 'p'))
+    await importSync('p', '/x', 'p')
+    expect(settings.set.mock.calls[0][0]).toEqual({ appearance: { theme: 'dark' }, search: undefined })
+  })
+  it('validates all data before changing settings or saving any connector', async () => {
+    files.read.mockResolvedValue(encryptBundle({ ...bundle, memory: [{ kind: 'fact', text: { bad: true } }] }, 'p'))
+    await expect(importSync('p', '/x', 'p')).rejects.toThrow()
+    expect(settings.set).not.toHaveBeenCalled()
+    expect(connectors.save).not.toHaveBeenCalled()
+  })
+  it('strips connector credentials from older bundles too', async () => {
+    files.read.mockResolvedValue(encryptBundle({ ...bundle, mcpServers: [{
+      id: 'x', name: 'Local', transport: 'stdio', command: 'program', args: [], enabled: true,
+      env: { SECRET: 'test' }, headers: { Authorization: 'test' }
+    }] }, 'p'))
+    await importSync('p', '/x', 'p')
+    expect(connectors.save).toHaveBeenCalledWith(expect.objectContaining({ env: {}, headers: {}, enabled: false }))
   })
 })

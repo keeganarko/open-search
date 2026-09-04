@@ -1,5 +1,5 @@
 import {
-  app, BaseWindow, WebContentsView, nativeTheme, type Rectangle, type WebContents
+  app, BaseWindow, WebContentsView, nativeTheme, session, type Rectangle, type WebContents
 } from 'electron'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
@@ -65,6 +65,11 @@ export class VoyagerWindow extends EventEmitter {
   profile: Profile
   /** Stable across a quit, so this window's tabs come back to this window. */
   readonly key: string
+  private readonly uiUrls = new Map<number, string>()
+
+  trustsUiSender(wc: WebContents): boolean {
+    return !wc.isDestroyed() && this.uiUrls.get(wc.id) === wc.getURL().split('#')[0]
+  }
 
   private sidebarOpen = true
   private sidebarWidth = CHROME.sidebarDefault
@@ -85,11 +90,13 @@ export class VoyagerWindow extends EventEmitter {
     super()
     this.profile = profile
     this.key = key
+    session.defaultSession.setSpellCheckerEnabled(getSettings().privacy.spellcheckEnabled)
 
     const mac = process.platform === 'darwin'
     const dark = nativeTheme.shouldUseDarkColors
     this.window = new BaseWindow({
       width: 1440, height: 900, minWidth: 720, minHeight: 480,
+      icon: join(app.getAppPath(), 'resources/icon-256.png'),
       // The tab strip is the title bar on every platform, but the controls sit
       // on opposite sides: macOS insets its traffic lights into our own chrome,
       // Windows and Linux need `titleBarOverlay` or there are no controls at all.
@@ -162,21 +169,13 @@ export class VoyagerWindow extends EventEmitter {
 
   async load(rendererUrl: string | null): Promise<void> {
     const base = rendererUrl?.replace(/\/$/, '') ?? 'voyager-app://ui'
-    const allowedOrigin = new URL(base).origin
-    const secureUi = (url: string): boolean => {
-      try {
-        const parsed = new URL(url)
-        return rendererUrl
-          ? parsed.origin === allowedOrigin && ['http:', 'https:'].includes(parsed.protocol)
-          : parsed.protocol === 'voyager-app:' && parsed.hostname === 'ui'
-      } catch {
-        return false
-      }
-    }
+    this.uiUrls.set(this.chrome.webContents.id, rendererUrl ?? `${base}/index.html`)
+    this.uiUrls.set(this.overlay.webContents.id, `${base}/overlay.html`)
     for (const wc of [this.chrome.webContents, this.overlay.webContents]) {
-      wc.on('will-navigate', (event, url) => {
-        if (!secureUi(url)) event.preventDefault()
-      })
+      wc.on('will-navigate', (event) => event.preventDefault())
+      wc.on('will-redirect', (event) => event.preventDefault())
+      wc.on('will-frame-navigate', (event) => event.preventDefault())
+      wc.on('will-attach-webview', (event) => event.preventDefault())
       wc.setWindowOpenHandler(() => ({ action: 'deny' }))
     }
 

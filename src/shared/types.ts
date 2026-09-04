@@ -15,6 +15,8 @@ export interface TabState {
   title: string
   favicon: string | null
   loading: boolean
+  /** HTTPS navigation has committed successfully, with normal certificate validation. */
+  connectionSecure: boolean
   canGoBack: boolean
   canGoForward: boolean
   audible: boolean
@@ -194,6 +196,7 @@ export interface ContextRef {
 
 export interface McpServerConfig {
   id: string
+  profileId?: string
   name: string
   enabled: boolean
   transport: 'stdio' | 'http'
@@ -222,6 +225,8 @@ export interface Settings {
     provider: 'anthropic'
     model: string
     apiKey: string | null
+    /** UI receives presence only; the stored key stays in main. */
+    apiKeySet?: boolean
     effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
     showThinking: boolean
     /** Send page text to the model only after this is true. */
@@ -237,6 +242,7 @@ export interface Settings {
     /** Global kill switch — no page content leaves the machine. */
     paused: boolean
     sendDoNotTrack: boolean
+    spellcheckEnabled: boolean
     clearOnQuit: boolean
   }
   appearance: {
@@ -375,6 +381,12 @@ export interface DownloadEntry {
   url: string
   bytes: number
   received: number
-  state: 'progressing' | 'completed' | 'cancelled' | 'interrupted' | 'paused'
+  state: 'progressing' | 'completed' | 'cancelled' | 'interrupted' | 'paused' | 'checking' | 'blocked'
+  reason?: string
   startedAt: string
+}
+
+export interface SecurityStatus {
+  updates: string
+  threats: { domains: number; updatedAt: string | null; stale: boolean; error: string }
 }

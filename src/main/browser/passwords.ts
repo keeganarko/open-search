@@ -1,3 +1,4 @@
+import { hasSecureStorage } from '../store/secureStorage'
 import { safeStorage } from 'electron'
 import type { SavedLogin } from '@shared/types'
 import * as db from '../store/db'
@@ -10,7 +11,7 @@ import { originOf } from './permissions'
  * calling it a password manager.
  */
 export function canSave(): boolean {
-  return safeStorage.isEncryptionAvailable()
+  return hasSecureStorage()
 }
 
 /** Never place a reusable password into an insecure remote HTTP page. */
@@ -30,6 +31,7 @@ function encrypt(password: string): string {
 }
 
 function decrypt(blob: string): string | null {
+  if (!canSave()) return null
   try { return safeStorage.decryptString(Buffer.from(blob, 'base64')) } catch { return null }
 }
 

@@ -18,14 +18,19 @@ export const app = {
 
 export const safeStorage = {
   isEncryptionAvailable: () => false,
+  getSelectedStorageBackend: () => 'basic_text',
   encryptString: (s: string) => Buffer.from(s, 'utf8'),
   decryptString: (b: Buffer) => b.toString('utf8')
 }
 
-export const session = { fromPartition: () => ({}) }
+export const session = { fromPartition: () => ({}), defaultSession: { setSpellCheckerEnabled: () => {} } }
 export const shell = { openExternal: () => Promise.resolve() }
 export const dialog = {}
 export const nativeTheme = {}
+export const systemPreferences = {
+  canPromptTouchID: () => false,
+  promptTouchID: async (_reason: string) => { throw new Error('Unavailable') }
+}
 export const desktopCapturer = { getSources: () => Promise.resolve([]) }
 export const webContents = { fromFrame: () => null }
 export const ipcMain = { handle: () => {}, on: () => {} }

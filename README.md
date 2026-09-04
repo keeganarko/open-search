@@ -1,150 +1,88 @@
+<img src="resources/voyager-mark.svg" width="64" height="64" alt="Voyager rocket icon">
+
 # Voyager
 
-Voyager is a standalone, local, AI-native desktop browser for Windows,
-macOS, and Linux. It combines everyday browsing, workspace organization, and an
-optional Anthropic-powered assistant in one application. Profiles, browsing
-data, saved credentials, memory, and settings stay on the local machine.
+### A little less browsing. A little more understanding.
 
-## Windows quick start
+A desktop browser built around your work. Organize your tabs, explore pages
+side by side, and ask an assistant that can use your browsing context.
 
-Install Node.js 20 or newer and Git, then run:
+![Voyager: open a research workspace, ask about a page, and get an answer with sources](docs/media/voyager.gif)
 
-```powershell
+*Actual prototype UI, presented in monochrome. Research pages and assistant response are illustrative.*
+
+[Watch the walkthrough](docs/media/voyager.mp4) · [Setup and features](docs/guide.md) · [Security status](docs/SECURITY-OPERATIONS.md)
+
+## Make space for the work
+
+- **Keep related tabs together.** Groups, pinned sites, and separate profiles help organize each project.
+- **Read with context.** Ask about the current page, bring another tab into the conversation, and follow the sources.
+- **Compare without switching.** Put up to four pages in resizable panes.
+- **Keep your workspace local.** Profiles, history, bookmarks, and settings live on your machine.
+- **Choose what the assistant can do.** Review permission requests before it takes external actions.
+
+## Try it
+
+Voyager is a prototype for Windows, macOS, and Linux. Install **Node.js 24+**
+and **Git**. Linux also needs an unlocked system keyring. Then run:
+
+```sh
 git clone https://github.com/keeganarko/voyager.git
 cd voyager
 npm ci
 npm run dev
 ```
 
-Build the Windows installer with:
+Browsing works without an API key. To use the assistant, add an Anthropic API
+key in **Settings → AI**. Using the assistant sends the context it needs to
+Anthropic after context-sharing consent. Review what you share, especially on
+sites containing personal or work information.
 
-```powershell
-npm run dist:win
-```
+Existing installers are unsigned and update manually. The source now includes
+signed-update verification, local threat blocking, conservative download checks,
+encrypted browser records, and tighter assistant permissions. Production signing,
+an update rehearsal, and independent testing remain release requirements.
+**Use Voyager as a testing browser until those checks are complete.**
 
-The installer is written to `release\Voyager Setup 0.1.0.exe`. Voyager
-uses native Windows caption buttons and Ctrl-based shortcuts. Its local profile
-is stored under `%APPDATA%\Voyager\`, with application data in
-`voyager.db`. Deleting that directory performs a full local reset.
+| Your choice | What Voyager does |
+|---|---|
+| Browse without AI | Keeps assistant features optional; no API key required. |
+| Ask about pages | Requests context-sharing consent and approvals for connector calls and website actions. |
+| Save browser records | Encrypts the app database with an OS-protected key; website caches and downloads are separate. |
+| Download a file | Requires HTTPS, blocks risky file types, and checks common executable signatures. |
+| Check protection | Shows update and threat-list status in **Settings → Security**. |
 
-To keep Voyager on the Windows taskbar, run the installer, launch Voyager, then
-right-click its taskbar icon and choose **Pin to taskbar**. The Windows build uses
-a stable application ID, so the pinned shortcut continues to resolve across
-normal upgrades.
+Domain blocking does not provide Chrome Safe Browsing coverage. Read the
+[security comparison](docs/SECURITY-AUDIT-2026-09-04.md) and
+[remaining release requirements](docs/SECURITY-OPERATIONS.md).
 
-Clipboard editing works through the standard **Edit** menu, keyboard shortcuts
-(`Ctrl+C`, `Ctrl+V`, and `Ctrl+Shift+V`), and right-click menus in both web pages
-and Voyager's own text fields.
+## Take a first look
 
-The app can browse without an API key. To enable the assistant, open
-**Settings → AI** and add an Anthropic API key. The key is protected with the
-operating system's credential encryption and is excluded from sync bundles.
+1. Open a few pages and group them around a project.
+2. Open the Voyager sidebar and ask about the current page.
+3. Use `@` to add another tab, or `/` to choose a skill.
 
-## Development
+## Develop or package
 
-```bash
-npm ci
-npm run dev
+Windows packaging also requires Visual Studio C++ Build Tools and the Windows
+SDK for the Windows Hello helper. See the [setup guide](docs/guide.md).
+
+```sh
 npm run typecheck
 npm test
 npm run build
+
+npm run dist:win    # Windows installer
+npm run dist       # macOS Apple Silicon DMG
+npm run dist:linux  # Linux AppImage
 ```
 
-Packaging commands:
+The [guide](docs/guide.md) covers profiles, privacy, permissions, extensions,
+and the application structure.
 
-```bash
-npm run dist       # macOS DMG
-npm run dist:win   # Windows NSIS installer
-npm run dist:linux # Linux AppImage
-```
+Built by [Keegan Choudhury](https://github.com/keeganarko).
+[MIT License](LICENSE) · [Report a vulnerability privately](SECURITY.md)
 
-Before opening a pull request, run `npm run typecheck`, `npm test`, and
-`npm run build`.
-
-## Features
-
-- Tabs with drag-to-reorder, pinning, muting, recently closed recovery, groups,
-  and up to four resizable panes.
-- Profiles with independent cookies, browsing data, history, saved logins,
-  tabs, groups, permissions, zoom levels, bookmarks, and assistant memory.
-- A vertical workspace rail with pinned sites, navigation, search, tabs, and
-  tool panels.
-- Full-text history search, bookmarks, downloads, print/PDF, find in page,
-  per-origin zoom, custom new-tab and error pages, and popup support.
-- Ad and tracker blocking with live blocked-request counts and runtime toggles.
-- Site permission controls for camera, microphone, location, notifications,
-  clipboard, screen sharing, MIDI, HID, serial, and USB.
-- Saved-login capture, origin-scoped filling, reveal, and deletion using the
-  operating system's credential encryption.
-- Unpacked extension loading for the extension APIs supported by Electron.
-- A sidebar assistant with streaming responses, visible tool steps, page and
-  tab context, citations, configurable approvals, and prompt-injection guards.
-- Built-in and user-created skills, local memory, daily briefs, encrypted sync,
-  MCP connectors, and PowerPoint/Markdown generation.
-
-## Opening experience
-
-The first window in each launch can show the Voyager wordmark and play a
-short original synthesized signature. Both can be disabled independently in
-**Settings → Appearance**, and the sound has its own volume control. No bundled
-third-party media is used.
-
-## Privacy and safety model
-
-Every assistant tool has an action class:
-
-| Class | Example | Default |
-|---|---|---|
-| `read` | Read a page or list tabs | Runs |
-| `local_reversible` | Open or group a tab | Runs |
-| `external_draft` | Write into a field without sending | Asks |
-| `external_write` | Create or send something outside Voyager | Asks |
-| `sensitive` | Deletion, money, or credentials | Always asks |
-
-Ambiguous MCP tools default to `external_write`. The `sensitive` policy cannot
-be relaxed. Page content is treated as untrusted data and is delimited before
-being sent to the model. Excluded sites are not read or written by assistant
-tools. Voyager can draft into a field, but it has no form-submit or
-message-send tool.
-
-Sync bundles use AES-256-GCM with a scrypt-derived key. API keys and sync-target
-settings are never exported. Connector subprocesses receive a minimal environment
-instead of inheriting the application's full environment.
-
-The current installer is unsigned and updates are manual. Treat this as a local
-testing build rather than a primary browser until signing, automatic security
-updates, malicious-site/download reputation checks, and independent review are
-in place. The complete comparison and prioritized hardening roadmap are in
-[the browser audit](docs/AUDIT.md).
-
-## Architecture
-
-```text
-src/
-  shared/      shared types and IPC channel contract
-  main/
-    store/     SQLite, settings, built-in skills, encrypted sync
-    browser/   sessions, tabs, windows, URLs, privacy, passwords, extensions
-    agent/     engine, policy, tools, context, skills, MCP, briefs, documents
-    ipc.ts     renderer-to-main handlers
-    menu.ts    application and page menus
-  preload/
-    chrome.ts  isolated window.voyager API for the app UI
-    page.ts    isolated page extraction, selection, and text insertion helpers
-  renderer/
-    src/       application UI, sidebar, panels, overlay, and startup experience
-test/          Vitest coverage with Electron and SQLite test stubs
-```
-
-Each desktop window is a `BaseWindow` containing the app UI, its visible page
-views, and a transparent overlay for palettes and permission prompts. The shared
-IPC table prevents main/preload drift. Each profile uses a
-`persist:voyager-*` Electron session, and internal pages use the
-`voyager://` scheme.
-
-See [CLAUDE.md](CLAUDE.md) for implementation invariants and
-[docs/AUDIT.md](docs/AUDIT.md) for the Windows port verification record.
-
-## License
-
-MIT — see [LICENSE](LICENSE). Copyright © 2026 Keegan Choudhury.
+The bundled threat data has a separate [GPL-3.0 license](resources/security/THREAT-LIST-NOTICE.md).
+Public source is part of the security model; profiles, tokens, and signing keys
+must remain outside Git. See [security operations](docs/SECURITY-OPERATIONS.md).

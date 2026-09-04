@@ -1,7 +1,7 @@
 {
   "name": "voyager",
   "version": "0.1.0",
-  "description": "Voyager — a local, AI-native browser for Windows, macOS, and Linux.",
+  "description": "Voyager \u2014 a local, AI-native browser for Windows, macOS, and Linux.",
   "main": "./out/main/index.js",
   "author": "Keegan Choudhury",
   "license": "MIT",
@@ -15,16 +15,23 @@
     "rebuild": "electron-builder install-app-deps",
     "postinstall": "electron-builder install-app-deps",
     "dist": "electron-vite build && electron-builder --mac --arm64",
-    "dist:win": "electron-vite build && electron-builder --win --x64",
-    "dist:linux": "electron-vite build && electron-builder --linux --x64"
+    "dist:win": "npm run build:windows-auth && electron-vite build && electron-builder --win --x64",
+    "dist:linux": "electron-vite build && electron-builder --linux --x64",
+    "security:engine": "node scripts/check-electron-release.mjs",
+    "security:release-config": "node scripts/verify-release-config.mjs",
+    "build:windows-auth": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-auth.ps1",
+    "security:native-storage": "node scripts/test-native-storage.mjs",
+    "security:package": "node scripts/package-security-runtime.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
     "@ghostery/adblocker-electron": "^2.11.3",
     "@modelcontextprotocol/sdk": "^1.20.0",
     "@mozilla/readability": "^0.6.0",
-    "better-sqlite3": "^13.0.0",
+    "better-sqlite3": "npm:better-sqlite3-multiple-ciphers@13.0.3",
+    "electron-updater": "6.8.9",
     "jszip": "^3.10.1",
+    "undici": "8.10.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {
@@ -49,8 +56,11 @@
       "buildResources": "resources"
     },
     "files": [
-      "out/**/*",
-      "resources/**/*"
+      "out/main/**/*",
+      "out/preload/**/*",
+      "out/renderer/**/*",
+      "resources/**/*",
+      "!resources/native/**/*"
     ],
     "electronFuses": {
       "runAsNode": false,
@@ -65,13 +75,25 @@
       "icon": "build/icon.png",
       "category": "public.app-category.productivity",
       "target": [
-        "dmg"
-      ]
+        "dmg",
+        "zip"
+      ],
+      "hardenedRuntime": true
     },
     "win": {
-      "icon": "build/icon.png",
+      "icon": "build/icon.ico",
       "target": [
         "nsis"
+      ],
+      "verifyUpdateCodeSignature": true,
+      "extraResources": [
+        {
+          "from": "resources/native",
+          "to": "native",
+          "filter": [
+            "voyager-auth.exe"
+          ]
+        }
       ]
     },
     "nsis": {
@@ -84,6 +106,16 @@
       "target": [
         "AppImage"
       ]
-    }
+    },
+    "artifactName": "Voyager-${version}-${os}-${arch}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "keeganarko",
+        "repo": "voyager",
+        "releaseType": "draft"
+      }
+    ],
+    "npmRebuild": false
   }
 }

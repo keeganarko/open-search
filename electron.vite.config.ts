@@ -4,6 +4,10 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   main: {
+    define: {
+      __SECURITY_TEST__: JSON.stringify(process.env.VOYAGER_SECURITY_TEST === '1'),
+      __TEST_TLS__: process.env.VOYAGER_TEST_TLS ?? 'null'
+    },
     plugins: [externalizeDepsPlugin()],
     resolve: { alias: { '@shared': resolve('src/shared') } },
     build: { rollupOptions: { input: { index: resolve('src/main/index.ts') } } }

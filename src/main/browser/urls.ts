@@ -57,6 +57,13 @@ export function prettyHost(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url }
 }
 
+/** Privileged UI must not re-fetch page-controlled icons in its own session. */
+export function safeFavicon(value: string | null | undefined): string | null {
+  return typeof value === 'string' && value.length <= 90_000
+    && /^data:image\/(?:png|jpeg|gif|webp|x-icon|vnd\.microsoft\.icon);base64,[a-z0-9+/=]+$/i.test(value)
+    ? value : null
+}
+
 /** Google/Outlook calendar event pages — the trigger for a meeting tab group. */
 export function calendarEvent(url: string, title: string): { title: string; source: string } | null {
   try {

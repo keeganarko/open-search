@@ -142,19 +142,19 @@ describe('connector configuration', () => {
       id: 'x', name: 'Remote', enabled: true, transport: 'http',
       url: 'http://example.com/mcp', headers: {}
     })).toThrow(/HTTPS/)
-    expect(validateMcpConfig({
+    expect(() => validateMcpConfig({
       id: 'x', name: 'Local', enabled: true, transport: 'http',
       url: 'http://127.0.0.1:8787/mcp', headers: {}
-    }).url).toContain('127.0.0.1')
+    })).toThrow(/public HTTPS/)
   })
 
   it('rejects malformed local process configuration', () => {
     expect(() => validateMcpConfig({
-      id: 'x', name: 'Bad', enabled: true, transport: 'stdio',
+      id: 'x', name: 'Bad', enabled: false, transport: 'stdio',
       command: 'tool\nsecond-command', args: [], env: {}
     })).toThrow(/command/)
     expect(() => validateMcpConfig({
-      id: 'x', name: 'Bad env', enabled: true, transport: 'stdio',
+      id: 'x', name: 'Bad env', enabled: false, transport: 'stdio',
       command: 'tool', args: [], env: { 'NOT VALID': 'x' }
     })).toThrow(/environment/)
   })

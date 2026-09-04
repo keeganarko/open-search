@@ -2,9 +2,10 @@ import { WebContentsView } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
+import { matchesThreat } from '../security/threats'
 import type { TabState, TabGroup, Profile } from '@shared/types'
 import { errorPageUrl, sessionFor } from './session'
-import { resolveInput, calendarEvent, isAllowedPageUrl } from './urls'
+import { resolveInput, calendarEvent, isAllowedPageUrl, safeFavicon } from './urls'
 import { getSettings, isExcluded } from '../store/settings'
 import * as db from '../store/db'
 import { callPage } from './pageBridge'
@@ -116,7 +117,7 @@ export class TabManager extends EventEmitter {
         // as the tab's URL made the omnibox read "new-tab" instead of showing
         // its placeholder, and left the chrome claiming a page that isn't there.
         url: publicUrl(url),
-        title: 'New Tab', favicon: null, loading: false,
+        title: 'New Tab', favicon: null, loading: false, connectionSecure: false,
         canGoBack: false, canGoForward: false, audible: false, muted: false,
         blockedRequests: 0,
         pinned: false, index: this.order.length, lastActiveAt: now, createdAt: now
@@ -362,7 +363,7 @@ export class TabManager extends EventEmitter {
       const tab = this.create({ url: s.url, background: true, groupId: s.groupId })
       tab.state.pinned = s.pinned
       tab.state.title = s.title
-      tab.state.favicon = s.favicon
+      tab.state.favicon = safeFavicon(s.favicon)
       tab.state.createdAt = s.createdAt
       tab.state.lastActiveAt = s.lastActiveAt
     }
@@ -426,7 +427,7 @@ export class TabManager extends EventEmitter {
     })
 
     wc.on('page-favicon-updated', (_e, icons) => {
-      tab.state.favicon = icons[0] ?? null
+      tab.state.favicon = safeFavicon(icons[0])
       this.changed()
     })
 
@@ -444,6 +445,11 @@ export class TabManager extends EventEmitter {
 
     wc.on('did-start-navigation', (details) => {
       if (!details.isMainFrame) return
+      if (!details.isSameDocument) {
+        tab.state.connectionSecure = false
+        tab.state.title = 'Loading…'
+        tab.state.favicon = null
+      }
       resetCount(wc.id)
       tab.state.blockedRequests = blockedCount(wc.id)
       this.recordDwell(tab)
@@ -453,6 +459,7 @@ export class TabManager extends EventEmitter {
     })
 
     wc.on('did-navigate', (_e, url) => {
+      tab.state.connectionSecure = url.startsWith('https:')
       tab.state.url = publicUrl(url)
       wc.setZoomLevel(db.zoomFor(this.profile.id, url))
       this.inheritMeeting(tab)
@@ -474,7 +481,8 @@ export class TabManager extends EventEmitter {
       this.emit('load-failed', tab, { code, desc, url })
       this.changed()
       if (!url.startsWith('voyager://')) {
-        void wc.loadURL(errorPageUrl(url, code, desc)).catch(() => {})
+        void wc.loadURL(errorPageUrl(url, code, matchesThreat(url)
+          ? 'Voyager blocked this domain because it appears on the malware and phishing threat list.' : desc)).catch(() => {})
       }
     })
 
@@ -513,7 +521,8 @@ export class TabManager extends EventEmitter {
   /** Records a visit, honouring exclusions and the global pause. */
   private async recordVisit(tab: Tab): Promise<void> {
     const settings = getSettings()
-    const url = tab.state.url
+    const url = tab.view.webContents.getURL()
+    const profileId = this.profile.id
     if (tab.view.webContents.getURL().startsWith('voyager://')) return
     if (!url || url === NEW_TAB || url.startsWith('about:')) return
     if (settings.privacy.paused || isExcluded(url, settings)) return
@@ -527,6 +536,8 @@ export class TabManager extends EventEmitter {
       if (extracted?.title) tab.state.title = extracted.title
     } catch { /* page blocked the eval; title-only history is fine */ }
 
-    tab.historyId = db.addHistory(this.profile.id, url, tab.state.title, excerpt)
+    if (tab.view.webContents.isDestroyed() || tab.view.webContents.getURL() !== url
+      || this.profile.id !== profileId || getSettings().privacy.paused || isExcluded(url)) return
+    tab.historyId = db.addHistory(profileId, url, tab.state.title, excerpt)
   }
 }

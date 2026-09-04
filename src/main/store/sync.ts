@@ -4,6 +4,27 @@ import { join, dirname } from 'node:path'
 import * as db from './db'
 import { getSettings, setSettings } from './settings'
 import { mcp } from '../agent/mcp'
+import { validateMcpConfig } from '../agent/mcp'
+import { z } from 'zod'
+
+const shortText = z.string().max(1_000)
+const date = z.string().max(100)
+const skillSchema = z.object({
+  id: shortText, slug: z.string().regex(/^[a-z0-9-]{1,100}$/), name: shortText,
+  description: z.string().max(10_000), prompt: z.string().max(100_000),
+  context: z.object({ currentPage: z.boolean(), allTabs: z.boolean(), selection: z.boolean(),
+    history: z.boolean(), memory: z.boolean(), connectors: z.boolean() }),
+  model: shortText.nullable(), builtin: z.boolean(), hotkey: shortText.nullable(),
+  createdAt: date, updatedAt: date
+})
+const memorySchema = z.object({
+  kind: z.enum(['preference', 'fact', 'project', 'person', 'contact']), text: z.string().max(20_000),
+  source: shortText.optional(), confidence: z.number().min(0).max(1).optional(), expiresAt: date.nullable().optional()
+})
+const bookmarkSchema = z.object({
+  url: z.string().max(8_192).url().refine((s) => /^https?:/.test(s)),
+  title: shortText, folder: shortText.nullable().optional()
+})
 
 const MAGIC = 'VOYAGER-SYNC-1'
 const FILENAME = 'voyager-sync.enc'
@@ -41,6 +62,7 @@ export function encryptBundle(bundle: Bundle, passphrase: string): Buffer {
 }
 
 export function decryptBundle(buf: Buffer, passphrase: string): Bundle {
+  if (buf.length > MAX_BUNDLE_BYTES) throw new Error('That sync bundle is too large to import safely.')
   // Length first: `timingSafeEqual` throws on a size mismatch, and a truncated
   // file should read as "not a bundle" rather than as a crash.
   const header = buf.subarray(0, MAGIC.length)
@@ -83,11 +105,12 @@ function collect(profileId: string): Bundle {
     version: 1,
     exportedAt: new Date().toISOString(),
     // The API key is deliberately excluded — it is machine-local.
-    settings: { ...settings, ai: { ...settings.ai, apiKey: null } },
+    settings: { appearance: settings.appearance, search: settings.search },
     skills: db.listSkills(),
     memory: db.listMemory(profileId),
     bookmarks: db.listBookmarks(profileId),
-    mcpServers: mcp.configs(),
+    mcpServers: mcp.configs().filter((c) => c.profileId === profileId)
+      .map((c) => ({ ...c, enabled: false, env: {}, headers: {} })),
     profiles: db.listProfiles()
   }
 }
@@ -115,31 +138,39 @@ export async function importSync(
   const bundle = decryptBundle(buf, passphrase)
   const summary: ImportSummary = { skills: 0, memory: 0, bookmarks: 0, connectors: 0, settings: false }
 
+  // Validate every record before the first mutation. An encrypted file is not
+  // necessarily trustworthy: another machine or its passphrase can be compromised.
+  const skills = bundle.skills.map((s) => skillSchema.parse(s))
+  const memory = bundle.memory.map((m) => memorySchema.parse(m))
+  const bookmarks = bundle.bookmarks.map((b) => bookmarkSchema.parse(b))
+  const connectors = bundle.mcpServers.map((c: any) => validateMcpConfig({
+    ...c, enabled: false, env: {}, headers: {}
+  }))
+
   if (bundle.settings) {
-    const incoming: any = { ...(bundle.settings as any) }
-    // Never let an imported bundle overwrite this machine's key or sync target.
-    delete incoming.ai?.apiKey
-    delete incoming.sync
+    const imported = bundle.settings as any
+    // Consent, exclusions, approvals, background AI, and secrets are machine-local.
+    const incoming: any = { appearance: imported.appearance, search: imported.search }
     setSettings(incoming)
     summary.settings = true
   }
 
-  for (const s of (bundle.skills ?? []) as any[]) {
+  for (const s of skills) {
     db.upsertSkill({ ...s, updatedAt: new Date().toISOString() })
     summary.skills++
   }
-  for (const m of (bundle.memory ?? []) as any[]) {
+  for (const m of memory) {
     db.addMemory(profileId, m.kind, m.text, m.source ?? 'sync', m.confidence ?? 0.8, m.expiresAt ?? null)
     summary.memory++
   }
-  for (const b of (bundle.bookmarks ?? []) as any[]) {
+  for (const b of bookmarks) {
     db.addBookmark(profileId, b.url, b.title, b.folder ?? null)
     summary.bookmarks++
   }
-  for (const c of (bundle.mcpServers ?? []) as any[]) {
+  for (const c of connectors) {
     // Importing data must never launch a program. The user can inspect and
     // explicitly enable a restored local connector afterward.
-    await mcp.save({ ...c, enabled: false })
+    await mcp.save({ ...c, id: `import-${randomBytes(16).toString('hex')}`, profileId, enabled: false })
     summary.connectors++
   }
   return summary

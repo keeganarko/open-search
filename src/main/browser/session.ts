@@ -1,8 +1,12 @@
 import { app, desktopCapturer, session, shell, webContents, type Session } from 'electron'
 import { join, basename, extname } from 'node:path'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
+import { chmod, link, unlink } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { getSettings, isExcluded } from '../store/settings'
-import { attachBlocker, detachBlocker } from './adblock'
+import { attachBlocker, detachBlocker, filterRequest } from './adblock'
+import { matchesThreat } from '../security/threats'
+import { downloadRisk, executableContent, markDownloadedFile } from '../security/downloads'
 import * as perms from './permissions'
 import type { DownloadEntry } from '@shared/types'
 
@@ -122,6 +126,12 @@ export function sessionFor(partition: string, profileId: string): Session {
   registerVoyagerProtocol(ses)
 
   ses.setUserAgent(browserUserAgent(ses.getUserAgent()))
+  ses.setSpellCheckerEnabled(getSettings().privacy.spellcheckEnabled)
+
+  ses.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
+    if (matchesThreat(details.url)) return callback({ cancel: true })
+    filterRequest(ses, details, callback)
+  })
 
   // Read the setting per request so the toggle takes effect without a restart.
   ses.webRequest.onBeforeSendHeaders((details, cb) => {
@@ -145,7 +155,8 @@ export function sessionFor(partition: string, profileId: string): Session {
   // is told it may go fullscreen and then finds it cannot. It cannot prompt, so
   // it answers from the stored decisions only.
   ses.setPermissionCheckHandler((wc, permission, origin, details) =>
-    perms.check(wc, details.securityOrigin || details.requestingUrl || origin || '', permission))
+    perms.check(wc, details.securityOrigin || details.requestingUrl || origin || '', permission,
+      (u) => isExcluded(u), details.mediaType))
 
   // `getDisplayMedia` rejects outright unless a handler is installed — Chromium
   // does not fall back to its own picker in Electron. Consent first, then the
@@ -154,25 +165,40 @@ export function sessionFor(partition: string, profileId: string): Session {
     // `request.frame` is a WebFrameMain, not the WebContents everything else
     // here speaks in, so it has to be resolved back before use.
     const wc = request.frame ? webContents.fromFrame(request.frame) ?? null : null
-    const url = request.frame?.url ?? wc?.getURL() ?? ''
+    const frame = request.frame
+    const url = frame?.url ?? ''
     const win = wc ? perms.windowFor(wc) : null
     const origin = perms.originOf(url)
     // An empty request is how you say no here — `callback({})` rejects the
     // page's promise, which is what a refusal should look like to the site.
-    if (!wc || !win || !origin || isExcluded(url)) return callback({})
+    if (!wc || !win || !frame || !origin || origin !== request.securityOrigin
+      || !request.userGesture || isExcluded(url)) return callback({})
+    const profileId = win.profile.id
+    let navigated = false
+    const navigation = (): void => { navigated = true }
+    wc.on('did-start-navigation', navigation)
+    const valid = (): boolean => !navigated && !wc.isDestroyed() && !win.window.isDestroyed()
+      && win.profile.id === profileId && request.frame === frame
+      && frame.url === url && !isExcluded(url)
 
-    const granted = await perms.decide(wc, 'display-capture', undefined, (u) => isExcluded(u))
-    if (!granted) return callback({})
-    const sourceId = await perms.pickScreenSource(win, origin)
-    if (!sourceId) return callback({})
-    // The thumbnails from the picker are throwaway; the stream needs a source
-    // fetched fresh, because the ids are only valid for the current enumeration.
-    const picked = (await desktopCapturer.getSources({ types: ['screen', 'window'] }))
-      .find((s) => s.id === sourceId)
-    if (!picked) return callback({})
-    // Audio is deliberately not offered: macOS loopback capture needs a system
-    // extension Electron does not ship, so promising it would be a lie.
-    callback({ video: picked })
+    try {
+      const granted = await perms.decide(wc, 'display-capture', undefined, (u) => isExcluded(u), url)
+      if (!granted || !valid()) return callback({})
+      const sourceId = await perms.pickScreenSource(win, origin, valid)
+      if (!sourceId || !valid()) return callback({})
+      // The thumbnails from the picker are throwaway; the stream needs a source
+      // fetched fresh, because the ids are only valid for the current enumeration.
+      const picked = (await desktopCapturer.getSources({ types: ['screen', 'window'] }))
+        .find((s) => s.id === sourceId)
+      if (!picked || !valid()) return callback({})
+      // Audio is deliberately not offered: macOS loopback capture needs a system
+      // extension Electron does not ship, so promising it would be a lie.
+      callback({ video: picked })
+    } catch {
+      callback({})
+    } finally {
+      wc.removeListener('did-start-navigation', navigation)
+    }
   }, { useSystemPicker: false })
 
   // WebHID / WebSerial / WebUSB pick a *device* after the class permission was
@@ -181,12 +207,28 @@ export function sessionFor(partition: string, profileId: string): Session {
   // It carries an origin but no frame, so the profile comes from the session
   // this handler was installed on rather than from the requesting page.
   ses.setDevicePermissionHandler((details) =>
-    perms.checkOrigin(profileId, details.origin, details.deviceType))
+    perms.checkOrigin(profileId, details.origin, details.deviceType, (u) => isExcluded(u)))
 
   ses.on('will-download', (_e, item) => {
+    const filename = item.getFilename()
+    const sourceChain = item.getURLChain()
+    const mimeType = item.getMimeType()
+    const risk = downloadRisk(filename, sourceChain, mimeType)
+    if (risk) {
+      _e.preventDefault()
+      downloads.unshift({ id: randomUUID(), filename, path: '', url: item.getURL(),
+        bytes: item.getTotalBytes(), received: 0, state: 'blocked', reason: risk,
+        startedAt: new Date().toISOString() })
+      downloads.length = Math.min(downloads.length, 100)
+      onDownloadChange?.()
+      return
+    }
     const target = uniqueDownloadPath(app.getPath('downloads'), item.getFilename())
+    const quarantine = join(app.getPath('downloads'), '.voyager-quarantine')
+    mkdirSync(quarantine, { recursive: true, mode: 0o700 })
+    const staged = join(quarantine, `${randomUUID()}.download`)
     reservedDownloadPaths.add(downloadKey(target))
-    item.setSavePath(target)
+    item.setSavePath(staged)
     const entry: DownloadEntry = {
       id: `dl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       filename: item.getFilename(),
@@ -204,12 +246,32 @@ export function sessionFor(partition: string, profileId: string): Session {
       entry.state = state === 'interrupted' ? 'interrupted' : item.isPaused() ? 'paused' : 'progressing'
       onDownloadChange?.()
     })
-    item.once('done', (_ev, state) => {
-      reservedDownloadPaths.delete(downloadKey(target))
-      entry.state = state
+    item.once('done', async (_ev, state) => {
+      entry.state = state === 'completed' ? 'checking' : state
       entry.received = item.getReceivedBytes()
-      entry.path = item.getSavePath()
       onDownloadChange?.()
+      try {
+        if (state === 'completed') {
+          await chmod(staged, 0o600)
+          if (downloadRisk(filename, sourceChain, mimeType) || await executableContent(staged)) {
+            throw new Error('The downloaded content is unsafe or executable.')
+          }
+          await markDownloadedFile(staged)
+          // Same-filesystem hard link publishes already-marked bytes atomically,
+          // and fails if another download or process claimed the destination.
+          await link(staged, target)
+          entry.state = 'completed'
+          entry.path = target
+        }
+      } catch {
+        entry.state = 'blocked'
+        entry.path = ''
+        entry.reason = 'The file failed safety or Internet-origin marking checks.'
+      } finally {
+        await unlink(staged).catch(() => {})
+        reservedDownloadPaths.delete(downloadKey(target))
+        onDownloadChange?.()
+      }
     })
     onDownloadChange?.()
   })
@@ -225,9 +287,11 @@ export function sessionFor(partition: string, profileId: string): Session {
 /** Apply ad/tracker toggles to every partition that is already running. */
 export async function refreshSessionPrivacy(): Promise<void> {
   const privacy = getSettings().privacy
+  session.defaultSession.setSpellCheckerEnabled(privacy.spellcheckEnabled)
   const enabled = privacy.blockAds || privacy.blockTrackers
   await Promise.all([...liveSessions.values()].map(async (ses) => {
     try {
+      ses.setSpellCheckerEnabled(privacy.spellcheckEnabled)
       enabled ? await attachBlocker(ses) : await detachBlocker(ses)
     } catch (err) {
       console.error('[voyager] could not update blocker state:', err)
@@ -239,6 +303,7 @@ export async function refreshSessionPrivacy(): Promise<void> {
 export function openExternal(url: string): void {
   try {
     const u = new URL(url)
+    if (matchesThreat(url)) return
     if (u.protocol === 'http:' || u.protocol === 'https:' || u.protocol === 'mailto:') {
       void shell.openExternal(url)
     }

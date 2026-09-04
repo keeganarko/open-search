@@ -16,12 +16,21 @@ export async function callPage<T>(
   ...args: unknown[]
 ): Promise<T | null> {
   if (webContents.isDestroyed()) return null
+  const url = webContents.getURL()
+  let navigated = false
+  const onNavigation = (event: { isMainFrame: boolean }): void => {
+    if (event.isMainFrame) navigated = true
+  }
+  webContents.on('did-start-navigation', onNavigation)
   const methodJson = JSON.stringify(method)
   const argsJson = JSON.stringify(args)
-  const code = `globalThis.__voyagerPage?.[${methodJson}]?.(...${argsJson}) ?? null`
-  return webContents.executeJavaScriptInIsolatedWorld(
-    PRELOAD_WORLD_ID,
-    [{ code }],
-    true
-  ) as Promise<T | null>
+  const code = `location.href === ${JSON.stringify(url)} ? (globalThis.__voyagerPage?.[${methodJson}]?.(...${argsJson}) ?? null) : null`
+  try {
+    const result = await webContents.executeJavaScriptInIsolatedWorld(
+      PRELOAD_WORLD_ID, [{ code }], false
+    ) as T | null
+    return !navigated && !webContents.isDestroyed() && webContents.getURL() === url ? result : null
+  } finally {
+    webContents.removeListener('did-start-navigation', onNavigation)
+  }
 }

@@ -68,6 +68,7 @@ type Emit = (e: StreamEvent) => void
 
 interface Pending {
   win: VoyagerWindow
+  profileId: string
   resolve: (approved: boolean) => void
 }
 
@@ -81,7 +82,8 @@ export class AgentEngine {
     return new Anthropic({ apiKey: ai.apiKey, maxRetries: 2 })
   }
 
-  stop(messageId: string): void {
+  stop(messageId: string, win?: VoyagerWindow): void {
+    if (win && this.aborts.get(messageId)?.win !== win) return
     this.aborts.get(messageId)?.controller.abort()
     this.aborts.delete(messageId)
     // Unblock anything sitting on an approval so the loop can unwind.
@@ -104,9 +106,11 @@ export class AgentEngine {
     }
   }
 
-  respondToApproval(stepId: string, approved: boolean): void {
+  respondToApproval(win: VoyagerWindow, stepId: string, approved: boolean): void {
     const p = this.pendingApprovals.get(stepId)
-    if (p) { p.resolve(approved); this.pendingApprovals.delete(stepId) }
+    if (p && p.win === win && p.profileId === win.profile.id) {
+      p.resolve(approved); this.pendingApprovals.delete(stepId)
+    }
   }
 
   private needsApproval(cls: ActionClass): boolean {
@@ -116,6 +120,9 @@ export class AgentEngine {
   async send(win: VoyagerWindow, opts: SendOptions, emit: Emit): Promise<void> {
     const settings = getSettings()
     const profileId = win.profile.id
+    if (opts.conversationId && !db.ownsConversation(profileId, opts.conversationId)) {
+      throw new Error('Conversation does not belong to this profile.')
+    }
 
     const conversationId = opts.conversationId
       ?? db.createConversation(profileId, opts.text.slice(0, 60) || 'New chat').id
@@ -144,6 +151,7 @@ export class AgentEngine {
 
     // ——— assemble context ——————————————————————————————————
     const { blocks, citations: attachCitations } = await resolveAttachments(win, opts.attachments)
+    if (win.profile.id !== profileId || win.window.isDestroyed()) return
     const memory = settings.privacy.memoryEnabled ? db.recallMemory(profileId, 40) : []
     if (memory.length) db.touchMemory(memory.map((m) => m.id))
 
@@ -173,7 +181,7 @@ export class AgentEngine {
     // ——— tools ————————————————————————————————————————————
     const local = browserTools(win)
     const localByName = new Map(local.map((t) => [t.definition.name, t]))
-    const mcpTools = mcp.anthropicTools()
+    const mcpTools = mcp.anthropicTools(win.profile.id)
 
     const tools: Anthropic.ToolUnion[] = [
       ...local.map((t) => t.definition),
@@ -280,6 +288,7 @@ export class AgentEngine {
 
         const results: Anthropic.ToolResultBlockParam[] = []
         for (const use of toolUses) {
+          if (controller.signal.aborted || win.profile.id !== profileId) throw new Error('Stopped.')
           const result = await this.runTool(win, use, localByName, assistant, messageId, emit)
           results.push(result)
         }
@@ -325,7 +334,15 @@ export class AgentEngine {
     emit: Emit
   ): Promise<Anthropic.ToolResultBlockParam> {
     const tool = local.get(use.name)
-    const isMcp = !tool && mcp.isMcpTool(use.name)
+    const profileId = win.profile.id
+    const manager = win.tabs
+    const target = use.name === 'insert_text' ? win.tabs.active() : undefined
+    const targetUrl = target?.view.webContents.getURL()
+    let targetChanged = false
+    const changed = (event: { isMainFrame: boolean }): void => { if (event.isMainFrame) targetChanged = true }
+    target?.view.webContents.on('did-start-navigation', changed)
+    const isMcp = !tool && mcp.isMcpTool(use.name, profileId)
+    const connectorBinding = isMcp ? mcp.bindingOf(use.name) : null
     const actionClass: ActionClass = tool?.actionClass
       ?? (isMcp ? mcp.actionClassOf(use.name) : 'read')
 
@@ -342,6 +359,7 @@ export class AgentEngine {
     assistant.steps.push(step)
 
     const finish = (output: string, status: ToolStep['status']): Anthropic.ToolResultBlockParam => {
+      target?.view.webContents.removeListener('did-start-navigation', changed)
       step.output = output.slice(0, 4000)
       step.status = status
       step.endedAt = new Date().toISOString()
@@ -358,15 +376,29 @@ export class AgentEngine {
       return finish(`No tool named ${use.name} is available.`, 'error')
     }
 
-    if (this.needsApproval(actionClass)) {
+    // Outbound operations and persistent model-written memory always require
+    // approval, even when settings or a connector describe them as harmless.
+    if (isMcp || ['open_tab', 'insert_text', 'remember'].includes(use.name) || this.needsApproval(actionClass)) {
       step.status = 'awaiting_approval'
       emit({ type: 'approval', messageId, step: { ...step } })
       const approved = await new Promise<boolean>((resolve) => {
-        this.pendingApprovals.set(step.id, { win, resolve })
+        this.pendingApprovals.set(step.id, { win, profileId, resolve })
       })
       if (!approved) {
         return finish('The user declined this action. Do not retry it; continue without it or ask what they would prefer.', 'denied')
       }
+    }
+
+    if (!this.aborts.has(messageId) || win.profile.id !== profileId || win.tabs !== manager) {
+      return finish('The task was stopped or the profile changed.', 'denied')
+    }
+    if (isMcp && mcp.bindingOf(use.name) !== connectorBinding) {
+      return finish('The connector changed while awaiting approval. No call was made.', 'denied')
+    }
+    if (use.name === 'insert_text' && (!target || targetChanged
+      || win.tabs.active() !== target || target.view.webContents.isDestroyed()
+      || target.view.webContents.getURL() !== targetUrl)) {
+      return finish('The destination changed while awaiting approval. No text was inserted.', 'denied')
     }
 
     step.status = 'running'
@@ -375,7 +407,7 @@ export class AgentEngine {
     try {
       const output = tool
         ? await tool.run(use.input)
-        : await mcp.call(use.name, use.input)
+        : await mcp.call(use.name, use.input, profileId)
       return finish(output, 'done')
     } catch (err) {
       return finish(`Error: ${err instanceof Error ? err.message : String(err)}`, 'error')

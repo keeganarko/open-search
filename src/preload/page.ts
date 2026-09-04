@@ -154,14 +154,6 @@ function passwordFields(): HTMLInputElement[] {
     .filter((i) => !i.disabled)
 }
 
-/** Native setter, so a React-controlled field actually registers the value. */
-function setValue(el: HTMLInputElement, value: string): void {
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-  setter ? setter.call(el, value) : (el.value = value)
-  el.dispatchEvent(new Event('input', { bubbles: true }))
-  el.dispatchEvent(new Event('change', { bubbles: true }))
-}
-
 /**
  * Reports a credential the user just submitted. Two password fields on screen
  * means a sign-up or a change-password form, where the pair worth keeping is
@@ -189,13 +181,22 @@ document.addEventListener('click', (e) => {
 }, true)
 window.addEventListener('beforeunload', captureSubmit)
 
-ipcRenderer.on('voyager:login-fill', (_e, cred: { username: string; password: string }) => {
+ipcRenderer.on('voyager:login-fill', (_e, cred: { origin: string; username: string; password: string }) => {
+  // Navigation may commit after main checked the URL but before IPC arrives.
+  if (location.origin !== cred.origin || window !== window.top) return
   const fields = passwordFields()
   if (!fields.length) return
   const pw = fields[0]
   const user = usernameFor(pw)
-  if (user) setValue(user, cred.username)
-  setValue(pw, cred.password)
+  // Set both values before notifying page handlers, which can change the DOM.
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  if (!setter) return
+  if (user) setter.call(user, cred.username)
+  setter.call(pw, cred.password)
+  for (const field of [user, pw]) {
+    field?.dispatchEvent(new Event('input', { bubbles: true }))
+    field?.dispatchEvent(new Event('change', { bubbles: true }))
+  }
 })
 
 const pageApi = {

@@ -1,8 +1,34 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { McpServerConfig, McpServerStatus, ActionClass } from '@shared/types'
 import * as db from '../store/db'
+import { createHash } from 'node:crypto'
+import { connectorDispatcher, validateConnectorEndpoint } from '../security/connectorNetwork'
+
+/** Never forward connector credentials through HTTP redirects or to discovery URLs. */
+export function connectorFetch(endpoint: string): typeof fetch {
+  const allowed = validateConnectorEndpoint(endpoint)
+  return async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input))
+    if (url.origin !== allowed.origin || url.pathname !== allowed.pathname || url.search !== allowed.search) {
+      throw new Error('Connector request left its approved endpoint.')
+    }
+    const response = await fetch(input, { ...init, redirect: 'error', credentials: 'omit',
+      dispatcher: connectorDispatcher } as RequestInit)
+    if (!response.body) return response
+    let bytes = 0
+    const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        bytes += chunk.byteLength
+        if (bytes > 8 * 1024 * 1024) throw new Error('Connector response exceeded the size limit.')
+        controller.enqueue(chunk)
+      }
+    }))
+    return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers })
+  }
+}
+const qualifiedName = (id: string, name: string): string =>
+  `mcp_${createHash('sha256').update(id).digest('hex').slice(0, 16)}__${name}`
 
 /**
  * Stdio connectors need enough of the host environment to find executables and
@@ -33,6 +59,7 @@ interface Live {
   client: Client | null
   tools: { name: string; description: string; schema: any; actionClass: ActionClass }[]
   error: string | null
+  epoch?: number
 }
 
 function validateMap(
@@ -60,6 +87,7 @@ export function validateMcpConfig(config: McpServerConfig): McpServerConfig {
   if (!['stdio', 'http'].includes(config.transport)) throw new Error('Unsupported connector transport.')
 
   if (config.transport === 'stdio') {
+    if (config.enabled) throw new Error('Local connectors are disabled until an operating-system sandbox is available.')
     const command = String(config.command ?? '').trim()
     if (!command || command.length > 4_096 || /[\0\r\n]/.test(command)) {
       throw new Error('Enter one valid connector command.')
@@ -70,14 +98,11 @@ export function validateMcpConfig(config: McpServerConfig): McpServerConfig {
     }
     validateMap(config.env, 'environment')
   } else {
-    let url: URL
-    try { url = new URL(String(config.url ?? '')) } catch { throw new Error('Enter a valid connector URL.') }
-    if (url.username || url.password) throw new Error('Put credentials in headers, not the URL.')
-    const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
-    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
-      throw new Error('Hosted connectors must use HTTPS. Plain HTTP is allowed only on this computer.')
-    }
+    validateConnectorEndpoint(String(config.url ?? ''))
     validateMap(config.headers, 'header')
+    if (Object.keys(config.headers ?? {}).some((k) => /^(host|connection|content-length|transfer-encoding|proxy-.*|upgrade)$/i.test(k))) {
+      throw new Error('Connector routing headers cannot be overridden.')
+    }
   }
   return { ...config, name }
 }
@@ -133,8 +158,8 @@ export class McpManager {
     }
   }
 
-  list(): McpServerStatus[] {
-    return [...this.servers.values()].map((s) => ({
+  list(profileId?: string): McpServerStatus[] {
+    return [...this.servers.values()].filter((s) => !profileId || s.config.profileId === profileId).map((s) => ({
       id: s.config.id,
       name: s.config.name,
       connected: !!s.client,
@@ -166,35 +191,39 @@ export class McpManager {
 
   async connect(id: string): Promise<void> {
     const live = this.servers.get(id)
-    if (!live) return
+    if (!live || !live.config.enabled) return
     await this.disconnect(id)
+    const epoch = live.epoch = (live.epoch ?? 0) + 1
+    let client: Client | null = null
     try {
       live.config = validateMcpConfig(live.config)
-      const client = new Client(
+      client = new Client(
         { name: 'voyager', version: '0.1.0' },
         { capabilities: {} }
       )
-      const transport = live.config.transport === 'stdio'
-        ? new StdioClientTransport({
-            command: live.config.command!,
-            args: live.config.args ?? [],
-            env: { ...connectorBaseEnv(), ...(live.config.env ?? {}) }
-          })
-        : new StreamableHTTPClientTransport(new URL(live.config.url!), {
-            requestInit: { headers: live.config.headers ?? {} }
+      if (!live.config.profileId) throw new Error('Reconnect this connector from its intended profile to grant access.')
+      const transport = new StreamableHTTPClientTransport(new URL(live.config.url!), {
+            requestInit: { headers: live.config.headers ?? {}, redirect: 'error' },
+            fetch: connectorFetch(live.config.url!)
           })
 
       await client.connect(transport)
       const { tools } = await client.listTools()
+      if (this.servers.get(id) !== live || live.epoch !== epoch || !live.config.enabled) {
+        await client.close()
+        return
+      }
       live.client = client
       live.error = null
-      live.tools = tools.map((t) => ({
+      live.tools = tools.filter((t) => /^[a-zA-Z0-9_-]{1,100}$/.test(t.name)).map((t) => ({
         name: t.name,
         description: t.description ?? '',
         schema: t.inputSchema,
         actionClass: inferActionClass(t.name, t.description ?? '')
       }))
     } catch (err) {
+      await client?.close().catch(() => {})
+      if (this.servers.get(id) !== live || live.epoch !== epoch) return
       live.client = null
       live.tools = []
       live.error = err instanceof Error ? err.message : String(err)
@@ -203,24 +232,25 @@ export class McpManager {
 
   async disconnect(id: string): Promise<void> {
     const live = this.servers.get(id)
-    if (!live?.client) return
-    try { await live.client.close() } catch { /* already down */ }
+    if (!live) return
+    live.epoch = (live.epoch ?? 0) + 1
+    const client = live.client
     live.client = null
     live.tools = []
+    try { await client?.close() } catch { /* already down */ }
   }
 
   /**
    * Every connected server's tools, namespaced so two servers can both expose
    * a tool called "search" without colliding.
    */
-  anthropicTools(): { name: string; description: string; input_schema: any; actionClass: ActionClass }[] {
+  anthropicTools(profileId?: string): { name: string; description: string; input_schema: any; actionClass: ActionClass }[] {
     const out: { name: string; description: string; input_schema: any; actionClass: ActionClass }[] = []
     for (const live of this.servers.values()) {
-      if (!live.client) continue
-      const prefix = live.config.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+      if (!live.client || !profileId || live.config.profileId !== profileId) continue
       for (const t of live.tools) {
         out.push({
-          name: `${prefix}__${t.name}`.slice(0, 128),
+          name: qualifiedName(live.config.id, t.name),
           description: `[${live.config.name}] ${t.description}`.slice(0, 1024),
           input_schema: t.schema ?? { type: 'object', properties: {} },
           actionClass: t.actionClass
@@ -230,18 +260,15 @@ export class McpManager {
     return out
   }
 
-  isMcpTool(name: string): boolean {
-    return name.includes('__') && this.resolve(name) !== null
+  isMcpTool(name: string, profileId?: string): boolean {
+    return !!profileId && this.resolve(name)?.live.config.profileId === profileId
   }
 
   private resolve(qualified: string): { live: Live; tool: string } | null {
-    const idx = qualified.indexOf('__')
-    if (idx < 0) return null
-    const prefix = qualified.slice(0, idx)
-    const tool = qualified.slice(idx + 2)
     for (const live of this.servers.values()) {
-      const p = live.config.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
-      if (p === prefix && live.tools.some((t) => t.name === tool)) return { live, tool }
+      if (!live.client || !live.config.enabled) continue
+      const tool = live.tools.find((t) => qualifiedName(live.config.id, t.name) === qualified)
+      if (tool) return { live, tool: tool.name }
     }
     return null
   }
@@ -252,9 +279,14 @@ export class McpManager {
     return hit.live.tools.find((t) => t.name === hit.tool)?.actionClass ?? 'external_write'
   }
 
-  async call(qualified: string, args: unknown): Promise<string> {
+  bindingOf(qualified: string): object | null {
+    return this.resolve(qualified)?.live.client ?? null
+  }
+
+  async call(qualified: string, args: unknown, profileId?: string): Promise<string> {
     const hit = this.resolve(qualified)
-    if (!hit?.live.client) return `Error: no connected MCP server provides ${qualified}.`
+    if (!hit?.live.client || !profileId || hit.live.config.profileId !== profileId) return `Error: no permitted MCP server provides ${qualified}.`
+    if (Buffer.byteLength(JSON.stringify(args ?? {})) > 128 * 1024) return 'Error: connector arguments are too large.'
     try {
       const res = await hit.live.client.callTool({
         name: hit.tool,

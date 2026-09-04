@@ -3,7 +3,7 @@ import { IPC } from '../shared/ipc'
 import type {
   Bookmark, Brief, ChatMessage, Conversation, ContextRef, HistoryEntry, MemoryItem,
   McpServerConfig, McpServerStatus, Profile, Settings, Skill, TabState, FullWindowState,
-  DownloadEntry, SitePermission, SavedLogin, ExtensionStatus
+  DownloadEntry, SitePermission, SavedLogin, ExtensionStatus, SecurityStatus
 } from '../shared/types'
 import type { StreamEvent } from '../shared/ipc'
 
@@ -25,6 +25,11 @@ function onBare(channel: string, fn: () => void): () => void {
 }
 
 const api = {
+  security: {
+    status: () => invoke<SecurityStatus>(IPC.securityStatus),
+    update: () => invoke<string>(IPC.securityUpdate),
+    refreshThreats: () => invoke<SecurityStatus['threats']>(IPC.securityRefreshThreats)
+  },
   /** The chrome draws its own title bar, and the window controls are not on the
    *  same side on every platform. */
   platform: process.platform,

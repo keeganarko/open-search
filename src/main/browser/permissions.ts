@@ -67,6 +67,7 @@ interface Pending {
   ask: PermissionAsk
   resolve: (allowed: boolean) => void
   win: VoyagerWindow
+  profileId: string
 }
 
 const pending = new Map<string, Pending>()
@@ -93,16 +94,25 @@ export function ask(
 ): Promise<boolean> {
   return new Promise((resolve) => {
     const id = `pm_${randomUUID()}`
+    const profileId = win.profile.id
     let settled = false
+    const cancel = (): void => done(false)
+    const navigation = (): void => done(false)
+    const timeout = setTimeout(cancel, 60_000)
+    timeout.unref?.()
     const done = (allowed: boolean): void => {
       if (settled) return
       settled = true
+      clearTimeout(timeout)
+      wc.removeListener('destroyed', cancel)
+      wc.removeListener('did-start-navigation', navigation)
       pending.delete(id)
       show(win)
-      resolve(allowed)
+      resolve(allowed && win.profile.id === profileId && !wc.isDestroyed())
     }
-    pending.set(id, { ask: { id, origin, permission, mediaTypes }, resolve: done, win })
-    wc.once('destroyed', () => done(false))
+    pending.set(id, { ask: { id, origin, permission, mediaTypes }, resolve: done, win, profileId })
+    wc.once('destroyed', cancel)
+    wc.on('did-start-navigation', navigation)
     show(win)
   })
 }
@@ -112,8 +122,8 @@ export function respond(
   win: VoyagerWindow, id: string, allowed: boolean, remember: boolean
 ): void {
   const p = pending.get(id)
-  if (!p || p.win !== win) return
-  if (remember) db.recordPermission(p.win.profile.id, p.ask.origin, p.ask.permission, allowed)
+  if (!p || p.win !== win || p.profileId !== win.profile.id) return
+  if (remember) db.recordPermission(p.profileId, p.ask.origin, p.ask.permission, allowed)
   p.resolve(allowed)
 }
 
@@ -136,22 +146,28 @@ const pickPending = new WeakMap<VoyagerWindow, PickPending>()
  * so Chromium's own picker is not available to us — the source list and the
  * choosing both have to happen here.
  */
-export async function pickScreenSource(win: VoyagerWindow, origin: string): Promise<string | null> {
+export async function pickScreenSource(
+  win: VoyagerWindow, origin: string, valid: () => boolean = () => true
+): Promise<string | null> {
   const sources = await desktopCapturer.getSources({
     types: ['screen', 'window'], thumbnailSize: { width: 320, height: 200 }, fetchWindowIcons: true
   })
+  if (!valid()) return null
   return new Promise((resolve) => {
     // A window has room for one modal picker. Cancel an older request before
     // replacing it, while allowing other browser windows to pick independently.
     pickPending.get(win)?.resolve(null)
     let settled = false
     let entry: PickPending
+    const timeout = setTimeout(() => done(null), 60_000)
+    timeout.unref?.()
     const done = (id: string | null): void => {
       if (settled) return
       settled = true
+      clearTimeout(timeout)
       if (pickPending.get(win) === entry) pickPending.delete(win)
       win.closeOverlay()
-      resolve(id)
+      resolve(valid() && sources.some((s) => s.id === id) ? id : null)
     }
     entry = { resolve: done, win }
     pickPending.set(win, entry)
@@ -196,6 +212,16 @@ export async function decide(
   const win = resolveWindow?.(wc) ?? null
   if (!win) return false
 
+  if (permission === 'media') {
+    if (!mediaTypes?.length || mediaTypes.some((t) => t !== 'audio' && t !== 'video')) return false
+    for (const type of [...new Set(mediaTypes)]) {
+      const key = `media:${type}`
+      const stored = db.permissionDecision(win.profile.id, origin, key)
+      if (stored === false) return false
+      if (stored !== true && !await ask(win, wc, origin, key, [type])) return false
+    }
+    return true
+  }
   const stored = db.permissionDecision(win.profile.id, origin, permission)
   if (stored !== null) return stored
 
@@ -207,8 +233,16 @@ export async function decide(
  * prompt, so "never asked" has to read as no — which is exactly right, because
  * the async handler is what turns a real request into a prompt.
  */
-export function check(wc: WebContents | null, url: string, permission: string): boolean {
+export function check(
+  wc: WebContents | null, url: string, permission: string,
+  excluded: (url: string) => boolean = () => false, mediaType?: string
+): boolean {
   if (AUTO_GRANTED.has(permission)) return true
+  if (!ASKABLE.has(permission) || excluded(url)) return false
+  if (permission === 'media') {
+    if (mediaType !== 'audio' && mediaType !== 'video') return false
+    permission = `media:${mediaType}`
+  }
   const origin = originOf(url)
   if (!origin) return false
   const win = wc ? resolveWindow?.(wc) ?? null : null
@@ -221,8 +255,12 @@ export function check(wc: WebContents | null, url: string, permission: string): 
  * carries neither a WebContents nor a WebFrameMain, so the profile has to come
  * from the session the handler was installed on.
  */
-export function checkOrigin(profileId: string, origin: string, permission: string): boolean {
+export function checkOrigin(
+  profileId: string, origin: string, permission: string,
+  excluded: (url: string) => boolean = () => false
+): boolean {
   if (AUTO_GRANTED.has(permission)) return true
+  if (!['hid', 'serial', 'usb'].includes(permission) || excluded(origin)) return false
   const o = originOf(origin)
   if (!o) return false
   return db.permissionDecision(profileId, o, permission) === true

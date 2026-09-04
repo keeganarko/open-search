@@ -1,0 +1,110 @@
+name: Signed release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: signed-release
+  cancel-in-progress: false
+jobs:
+  build:
+    environment: release
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      WIN_PUBLISHER_NAME: ${{ vars.WIN_PUBLISHER_NAME }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node node_modules/electron/install.js
+      - run: npm run typecheck
+      - run: npm test
+      - run: node scripts/test-native-storage.mjs
+      - run: node scripts/test-release-signing.mjs
+      - run: npm audit --audit-level=low
+      - run: npm run security:engine
+      - run: node scripts/refresh-threat-feed.mjs
+      - name: Build Windows Hello helper
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/build-windows-auth.ps1
+      - name: Validate packaged Windows browser
+        if: runner.os == 'Windows'
+        run: node scripts/package-security-runtime.mjs
+      - name: Run packaged security checks
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/run-security-runtime.ps1
+      - name: Sign and build Windows
+        if: runner.os == 'Windows'
+        run: node scripts/build-signed-release.mjs
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+      - name: Verify every Windows executable
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/verify-windows-signatures.ps1
+      - name: Sign and notarize macOS
+        if: runner.os == 'macOS'
+        run: node scripts/build-signed-release.mjs
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Build Linux for signed-manifest verification
+        if: runner.os == 'Linux'
+        run: node scripts/build-signed-release.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ runner.os }}
+          path: |
+            release/signed/*.exe
+            release/signed/*.dmg
+            release/signed/*.zip
+            release/signed/*.AppImage
+            release/signed/*.yml
+            release/signed/*.blockmap
+          if-no-files-found: error
+          retention-days: 7
+  manifest:
+    needs: build
+    environment: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-*
+          path: release/signed
+          merge-multiple: true
+      - name: Authenticate all release artifacts
+        run: node scripts/sign-release.mjs release/signed
+        env:
+          VOYAGER_UPDATE_PRIVATE_KEY: ${{ secrets.VOYAGER_UPDATE_PRIVATE_KEY }}
+      - name: Create a draft release for final review
+        shell: bash
+        run: gh release create "$GITHUB_REF_NAME" release/signed/* --verify-tag --draft --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

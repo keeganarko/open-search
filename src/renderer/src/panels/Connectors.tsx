@@ -50,38 +50,10 @@ const PRESETS: Preset[] = [
       headers: { Authorization: 'Bearer ' }
     }
   },
-  {
-    name: 'Filesystem',
-    note: 'Give it one directory. Voyager can then read and write only inside it.',
-    verified: true,
-    config: {
-      transport: 'stdio', command: 'npx',
-      args: [
-        '-y', '@modelcontextprotocol/server-filesystem',
-        window.voyager.platform === 'win32'
-          ? 'C:\\Users\\you\\Documents'
-          : window.voyager.platform === 'darwin' ? '/Users/you/Documents' : '/home/you/Documents'
-      ]
-    }
-  },
-  {
-    name: 'Gmail + Calendar',
-    note: 'There is no official Google Workspace MCP server. Several community ones exist on npm; pick one you trust before giving it a mailbox, then put its command below.',
-    verified: false,
-    config: { transport: 'stdio', command: 'npx', args: ['-y', ''] }
-  },
-  {
-    name: 'Slack',
-    note: 'The reference Slack server is deprecated and there is no official hosted endpoint. Point this at whichever Slack MCP server you run, with SLACK_BOT_TOKEN and SLACK_TEAM_ID set.',
-    verified: false,
-    config: {
-      transport: 'stdio', command: 'npx', args: ['-y', ''],
-      env: { SLACK_BOT_TOKEN: '', SLACK_TEAM_ID: '' }
-    }
-  }
+
 ]
 const blank: McpServerConfig = {
-  id: '', name: '', enabled: true, transport: 'stdio', command: '', args: [], env: {},
+  id: '', name: '', enabled: true, transport: 'http',
   url: '', headers: {}
 }
 
@@ -175,7 +147,7 @@ export default function Connectors({ onClose, toast }: {
               onChange={(e) => setEditing({
                 ...editing, transport: e.target.value as McpServerConfig['transport']
               })}>
-              <option value="stdio">stdio — a local command</option>
+              <option value="stdio" disabled>Local programs are disabled</option>
               <option value="http">http — a hosted MCP endpoint</option>
             </select>
           </div>
@@ -226,8 +198,8 @@ export default function Connectors({ onClose, toast }: {
       ) : (
         <>
           <div className="desc" style={{ marginBottom: 16, maxWidth: 640 }}>
-            Connectors are MCP servers. Voyager lists their tools to the model and sorts each one
-            into an action class — anything that writes outside Voyager stops and asks you first.
+            Hosted connectors belong to this profile. Every tool call asks for approval before sending its arguments.
+            Local programs and private-network endpoints are disabled.
           </div>
           {servers.length === 0 && <div className="empty">No connectors yet.</div>}
           {servers.map((s) => (

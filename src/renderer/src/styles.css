@@ -505,8 +505,8 @@ a { color: var(--accent); }
 }
 .toast.error { background: var(--danger); color: #fff; }
 
-/* A single left-to-right wordmark reveal. Main holds the tab views back while
-   it runs, so the white field stays completely clean. */
+/* A slow wordmark reveal and an orbital trace, in the original ink and white.
+   Main holds the tab views back until the complete signature has faded. */
 .splash {
   position: fixed;
   inset: 0;
@@ -520,36 +520,76 @@ a { color: var(--accent); }
   color: #090909;
   cursor: default;
   opacity: 1;
-  transition: opacity 360ms cubic-bezier(0.4, 0, 1, 1);
+  transition: opacity var(--splash-exit-duration, 600ms) cubic-bezier(0.4, 0, 1, 1);
 }
 .splash--exiting { opacity: 0; }
+.splash__signature {
+  position: relative;
+  font-size: clamp(42px, 6.25vw, 88px);
+}
 .splash__reveal {
-  overflow: hidden;
-  padding: 0.12em 0.08em 0.16em;
+  position: relative;
 }
 .splash__wordmark {
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: clamp(42px, 6.25vw, 88px);
+  font-size: inherit;
   font-weight: 600;
-  line-height: 1;
+  line-height: 1.25;
+  /* Padding scales with the lettering, with room for the g descender and
+     alternate system fonts. The reveal only crops horizontally. */
+  padding: 0.08em 0.14em 0.22em;
   letter-spacing: -0.055em;
   white-space: nowrap;
   will-change: clip-path, opacity, transform;
-  animation: splash-wordmark-arrive 1.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: splash-wordmark-arrive 2.8s 150ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.splash__orbit {
+  position: absolute;
+  width: 150%;
+  height: 180%;
+  left: -25%;
+  top: -40%;
+  overflow: visible;
+  pointer-events: none;
+}
+.splash__orbit-trail {
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.18;
+  stroke-dasharray: 1;
+  animation: splash-orbit-draw 3.2s 200ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.splash__star {
+  fill: currentColor;
+  opacity: 0.55;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: splash-star-arrive 900ms 2.7s ease-out both;
 }
 @keyframes splash-wordmark-arrive {
   from {
-    clip-path: inset(0 100% 0 0);
+    clip-path: inset(-0.2em 100% -0.2em -0.2em);
     opacity: 0;
-    transform: translateX(-44px);
+    transform: translateX(-0.3em);
   }
   to {
-    clip-path: inset(0 0 0 0);
+    clip-path: inset(-0.2em);
     opacity: 1;
     transform: translateX(0);
   }
 }
+@keyframes splash-orbit-draw {
+  from { stroke-dashoffset: 1; opacity: 0; }
+  to { stroke-dashoffset: 0; opacity: 0.18; }
+}
+@keyframes splash-star-arrive {
+  from { opacity: 0; transform: scale(0.65) rotate(-30deg); }
+  to { opacity: 0.55; transform: scale(1) rotate(0); }
+}
 @media (prefers-reduced-motion: reduce) {
-  .splash { transition-duration: 120ms; }
-  .splash__wordmark { animation: none; }
+  .splash__wordmark,
+  .splash__orbit-trail,
+  .splash__star { animation: none; }
 }

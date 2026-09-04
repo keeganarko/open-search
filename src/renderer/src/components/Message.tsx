@@ -9,8 +9,8 @@ const GLYPH: Record<ToolStep['status'], string> = {
 const CLASS_LABEL: Record<ActionClass, string> = {
   read: 'reads',
   local_reversible: 'changes something in Voyager — undoable',
-  external_draft: 'drafts, without sending',
-  external_write: 'writes to a service outside Voyager',
+  external_draft: 'prepares content for review',
+  external_write: 'may send data or change something on a website',
   sensitive: 'is sensitive — money, deletion, or credentials'
 }
 
@@ -83,8 +83,8 @@ export default function Message({ msg, streaming, onApprove }: Props): JSX.Eleme
           <div className="why">
             This {CLASS_LABEL[s.actionClass]}.
             <br />
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>
-              {JSON.stringify(s.input).slice(0, 300)}
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 11, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', display: 'block', maxHeight: 240, overflow: 'auto' }}>
+              {JSON.stringify(s.input, null, 2)}
             </span>
           </div>
           <div className="row">

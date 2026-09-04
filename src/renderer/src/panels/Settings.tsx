@@ -3,9 +3,10 @@ import type {
   ActionClass, ExtensionStatus, SavedLogin, Settings as S, SitePermission
 } from '@shared/types'
 import Panel from './Panel'
+import SecurityStatus from './SecurityStatus'
 
 const TABS = [
-  'AI', 'Privacy', 'Sites', 'Passwords', 'Extensions',
+  'AI', 'Privacy', 'Security', 'Sites', 'Passwords', 'Extensions',
   'Appearance', 'Search', 'Brief', 'Approvals', 'Sync'
 ] as const
 type Tab = typeof TABS[number]
@@ -34,8 +35,8 @@ const PERMISSION_LABEL: Record<string, string> = {
 
 const ACTION_CLASSES: { id: ActionClass; label: string; hint: string }[] = [
   { id: 'read', label: 'Read', hint: 'Read a page, a tab, your history.' },
-  { id: 'local_reversible', label: 'Local + reversible', hint: 'Open a tab, group tabs, remember a fact.' },
-  { id: 'external_draft', label: 'Draft', hint: 'Write into a field without sending.' },
+  { id: 'local_reversible', label: 'Local + reversible', hint: 'Group, close, or arrange tabs.' },
+  { id: 'external_draft', label: 'Draft', hint: 'Prepare content for review.' },
   { id: 'external_write', label: 'External write', hint: 'Send, post, or create outside Voyager.' },
   { id: 'sensitive', label: 'Sensitive', hint: 'Money, deletion, credentials. Always asks.' }
 ]
@@ -75,7 +76,15 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
     if (shown[id]) return setShown((s) => { const n = { ...s }; delete n[id]; return n })
     const secret = await window.voyager.logins.reveal(id)
     if (secret) setShown((s) => ({ ...s, [id]: secret }))
+    else toast('Password reveal needs successful Windows Hello or Touch ID authentication.', 'error')
   }, [shown, toast])
+
+  useEffect(() => {
+    if (!Object.keys(shown).length) return
+    const timer = setTimeout(() => setShown({}), 30_000)
+    return () => clearTimeout(timer)
+  }, [shown])
+  useEffect(() => { setShown({}) }, [tab])
 
   const ai = settings.ai
   const p = settings.privacy
@@ -88,6 +97,7 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
         ))}
       </div>
 
+      {tab === 'Security' && <SecurityStatus />}
       {tab === 'AI' && (
         <>
           <div className="field">
@@ -95,7 +105,7 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
             <div className="desc">
               Stored with your operating system&apos;s protected credential storage, never in the
               settings file and never in a sync bundle.
-              {ai.apiKey ? ' A key is set.' : ' No key set yet.'}
+              {ai.apiKeySet ? ' A key is set.' : ' No key set yet.'}
             </div>
             <div className="row">
               <input type="password" value={key} placeholder="sk-ant-…"
@@ -114,7 +124,7 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
                     toast(err instanceof Error ? err.message : String(err), 'error')
                   }
                 }}>{testing ? 'Testing…' : 'Test & save'}</button>
-              {ai.apiKey && (
+              {ai.apiKeySet && (
                 <button className="btn danger" onClick={() => update({ ai: { apiKey: null } })}>
                   Remove
                 </button>
@@ -148,7 +158,7 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
           <label className="check">
             <input type="checkbox" checked={ai.contextConsent}
               onChange={(e) => update({ ai: { contextConsent: e.target.checked } })} />
-            Let Voyager read the page you are on without asking each time
+            Allow browser context to be sent to Anthropic without asking for each AI task
           </label>
         </>
       )}
@@ -170,6 +180,13 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
               onChange={(e) => update({ privacy: { blockTrackers: e.target.checked } })} />
             Block trackers
           </label>
+          <label className="check">
+            <input type="checkbox" checked={p.spellcheckEnabled}
+              onChange={(e) => update({ privacy: { spellcheckEnabled: e.target.checked } })} />
+            Spell check
+          </label>
+          <div className="desc">On Windows and Linux, enabling spell check can download dictionaries from Google’s CDN.
+            The built-in checker processes typed text locally. macOS uses the system spell checker.</div>
           <label className="check">
             <input type="checkbox" checked={p.sendDoNotTrack}
               onChange={(e) => update({ privacy: { sendDoNotTrack: e.target.checked } })} />
@@ -296,7 +313,7 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
           <label className="check">
             <input type="checkbox" checked={settings.brief.enabled}
               onChange={(e) => update({ brief: { enabled: e.target.checked } })} />
-            Generate a morning brief
+            Generate a morning brief (requires AI context consent)
           </label>
           <div className="field">
             <label>At</label>
@@ -304,13 +321,14 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
               onChange={(e) => update({ brief: { at: e.target.value } })} />
           </div>
           {([
-            ['includeCalendar', 'Calendar — needs a calendar connector'],
-            ['includeMail', 'Mail — needs a mail connector'],
+            ['includeCalendar', 'Calendar — currently unavailable'],
+            ['includeMail', 'Mail — currently unavailable'],
             ['includeTabs', 'What you left open'],
             ['includeReadingList', 'Pages you saved to read']
           ] as const).map(([k, label]) => (
             <label className="check" key={k}>
-              <input type="checkbox" checked={settings.brief[k]}
+              <input type="checkbox" disabled={k === 'includeCalendar' || k === 'includeMail'}
+                checked={k === 'includeCalendar' || k === 'includeMail' ? false : settings.brief[k]}
                 onChange={(e) => update({ brief: { [k]: e.target.checked } })} />
               {label}
             </label>
@@ -321,7 +339,8 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
       {tab === 'Approvals' && (
         <>
           <div className="desc" style={{ marginBottom: 14, maxWidth: 620 }}>
-            Anything not ticked stops and asks you first. Sensitive actions always ask,
+            Anything not ticked stops and asks you first. Connector calls, opening URLs,
+            inserting page text, saving assistant memory, and sensitive actions always ask,
             whatever is set here.
           </div>
           {ACTION_CLASSES.map((c) => (
@@ -348,8 +367,7 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
         <>
           <div className="desc" style={{ marginBottom: 14, maxWidth: 620 }}>
             Voyager writes one encrypted file to a folder you choose — put that folder in
-            iCloud or Dropbox and your other machines can read it. Tabs, groups, memory,
-            skills, bookmarks and settings travel. Your API key never does.
+            iCloud or Dropbox and your other machines can read it. Memory, skills, bookmarks, and appearance settings travel. API keys, connector secrets, and security choices stay on this machine.
           </div>
           <div className="field">
             <label>Folder</label>

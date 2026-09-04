@@ -103,7 +103,7 @@ empty hostname.
 
 ## Adding a tool
 
-`src/main/agent/tools.ts`. An `VoyagerTool` is a definition, an `actionClass`, a
+`src/main/agent/tools.ts`. A `VoyagerTool` is a definition, an `actionClass`, a
 `describe` for the approval sheet, and a `run`. The class is not decoration — it
 is what decides whether the engine stops and asks. If a tool can cause an effect
 someone else can see, it is at least `external_write`.

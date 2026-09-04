@@ -7,6 +7,9 @@
  * panel list in `App.tsx`.
  */
 export const IPC = {
+  securityStatus: 'voyager:security-status',
+  securityUpdate: 'voyager:security-update',
+  securityRefreshThreats: 'voyager:security-refresh-threats',
   // window + chrome
   stateChanged: 'voyager:state-changed',
   windowState: 'voyager:window-state',

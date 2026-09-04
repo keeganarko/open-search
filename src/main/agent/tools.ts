@@ -1,7 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk'
 import type { VoyagerWindow } from '../browser/window'
 import type { ActionClass } from '@shared/types'
-import { readTab, readSelection, renderPage, renderTabList } from './context'
+import { readTab, readSelection, renderPage, renderTabList, escapeContextText } from './context'
 import { prettyHost, resolveInput } from '../browser/urls'
 import { getSettings } from '../store/settings'
 import { isExcluded } from '../store/settings'
@@ -97,23 +97,25 @@ export function browserTools(win: VoyagerWindow): VoyagerTool[] {
         }, ['query'])
       },
       run: async (i) => {
-        const rows = db.searchHistory(win.profile.id, String(i.query), Math.min(Number(i.limit) || 20, 100))
+        if (getSettings().privacy.paused) return 'Page access is paused.'
+        const rows = db.searchHistory(win.profile.id, String(i.query), Math.max(1, Math.min(Number(i.limit) || 20, 100)))
+          .filter((h) => !isExcluded(h.url))
         if (!rows.length) return 'No matching history.'
-        return rows.map((h) =>
+        return escapeContextText(rows.map((h) =>
           `- ${h.title}\n  ${h.url}\n  visited ${h.visitedAt.slice(0, 16).replace('T', ' ')}` +
           (h.excerpt ? `\n  ${h.excerpt.slice(0, 300)}…` : '')
-        ).join('\n')
+        ).join('\n'))
       }
     },
 
     {
-      actionClass: 'local_reversible',
+      actionClass: 'external_write',
       describe: (i) => `Open ${prettyHost(String(i.url))}`,
       definition: {
         name: 'open_tab',
         description:
           'Open a URL in a new tab. Opens in the background by default so the user is not ' +
-          'yanked away from what they are reading.',
+          'yanked away from what they are reading. Navigating sends the URL to a website and may cause side effects.',
         input_schema: jsonSchema({
           url: { type: 'string' },
           foreground: { type: 'boolean', description: 'Switch to it immediately. Default false.' }
@@ -121,6 +123,7 @@ export function browserTools(win: VoyagerWindow): VoyagerTool[] {
       },
       run: async (i) => {
         const url = resolveInput(String(i.url), getSettings().search.engine)
+        if (isExcluded(url)) return 'This destination is excluded; no request was made.'
         const tab = win.tabs.create({ url, background: i.foreground !== true })
         return `Opened ${url} as tab ${tab.id}.`
       }
@@ -184,7 +187,7 @@ export function browserTools(win: VoyagerWindow): VoyagerTool[] {
     },
 
     {
-      actionClass: 'local_reversible',
+      actionClass: 'external_draft',
       describe: (i) => `Remember: ${i.text}`,
       definition: {
         name: 'remember',
@@ -245,14 +248,13 @@ export function browserTools(win: VoyagerWindow): VoyagerTool[] {
     },
 
     {
-      actionClass: 'external_draft',
+      actionClass: 'external_write',
       describe: (i) => `Put draft text into the page field (${String(i.text).length} chars)`,
       definition: {
         name: 'insert_text',
         description:
           'Insert or replace text in the focused editable field on the current page. This only ' +
-          'drafts — it never submits a form, clicks a button, or sends anything. The user still ' +
-          'has to press send themselves.',
+          'edits a field without clicking submit. The website can transmit or autosave text as soon as it is inserted.',
         input_schema: jsonSchema({
           text: { type: 'string' },
           replace_selection: { type: 'boolean', description: 'Replace the current selection rather than inserting at the caret. Default true.' }
@@ -261,14 +263,14 @@ export function browserTools(win: VoyagerWindow): VoyagerTool[] {
       run: async (i) => {
         const tab = win.tabs.active()
         if (!tab) return 'No active tab.'
-        if (isExcluded(tab.state.url)) {
+        if (getSettings().privacy.paused || isExcluded(tab.view.webContents.getURL())) {
           return 'This site is excluded. Voyager did not touch the page.'
         }
         try {
           const res = await callPage<boolean>(tab.view.webContents, 'insertText', {
             text: String(i.text), replace: i.replace_selection !== false
           })
-          return res ? 'Inserted the draft into the focused field. Nothing was submitted.'
+          return res ? 'Inserted text into the field. The website may transmit or autosave it.'
                      : 'No editable field is focused on the page, so nothing was inserted.'
         } catch {
           return 'The page refused the insertion.'
@@ -280,8 +282,7 @@ export function browserTools(win: VoyagerWindow): VoyagerTool[] {
 
 /** Anthropic-hosted tools. No local execution; results come back inline. */
 export function serverTools(): Anthropic.ToolUnion[] {
-  return [
-    { type: 'web_search_20260209', name: 'web_search', max_uses: 8 } as unknown as Anthropic.ToolUnion,
-    { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 8, citations: { enabled: true } } as unknown as Anthropic.ToolUnion
-  ]
+  // Hosted tools execute before Voyager can approve their arguments. Do not
+  // expose them until a broker can authorize each outbound query and URL.
+  return []
 }

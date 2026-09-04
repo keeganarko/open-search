@@ -29,8 +29,8 @@ export default function Brief({ onClose, toast }: {
     >
       {!brief && !busy && (
         <div className="empty">
-          Nothing yet today. Voyager pulls from your calendar and mail connectors, the tabs you left
-          open, and what you saved to read.
+          Nothing yet today. Voyager can summarize the tabs you left open and recent
+          reading history. Calendar and mail briefing are currently unavailable.
         </div>
       )}
       {brief?.sections.map((s, i) => (

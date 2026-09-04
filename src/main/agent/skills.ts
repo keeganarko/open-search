@@ -2,6 +2,7 @@ import type { VoyagerWindow } from '../browser/window'
 import type { Skill, ContextRef } from '@shared/types'
 import { escapeContextText, readTab, readSelection, renderPage } from './context'
 import * as db from '../store/db'
+import { getSettings, isExcluded } from '../store/settings'
 
 export interface ExpandedSkill {
   prompt: string
@@ -19,12 +20,13 @@ export async function expandSkill(
   const attachments: ContextRef[] = []
 
   let page = ''
-  let url = active?.state.url ?? ''
+  let url = active?.view.webContents.getURL() ?? ''
+  if (getSettings().privacy.paused || isExcluded(url)) url = ''
   if (skill.context.currentPage && active) {
     const content = await readTab(win, active.id)
     if (content) {
       page = renderPage(content)
-      url = content.url
+      url = content.excluded ? '' : content.url
       attachments.push({
         type: 'tab', id: active.id,
         label: content.title, detail: content.url

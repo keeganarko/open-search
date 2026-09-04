@@ -64,8 +64,9 @@ export default function Writing({ anchor, tabId, onClose }: {
         {result && (
           <div className="row">
             <button className="btn primary" onClick={async () => {
-              await window.voyager.writing.apply(result, true, tabId)
-              onClose()
+              const applied = await window.voyager.writing.apply(result, true, tabId)
+              if (applied) onClose()
+              else setError('The page or selection changed. Select the text and rewrite it again.')
             }}>Replace selection</button>
             <button className="btn" onClick={async () => {
               await window.voyager.copy(result)

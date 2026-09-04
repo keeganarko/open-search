@@ -1,7 +1,8 @@
 import { app, BrowserWindow, dialog, nativeTheme, net, protocol } from 'electron'
 import { join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { writeFileSync } from 'node:fs'
+import { writeFileSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { VoyagerWindow, post } from './browser/window'
 import {
@@ -20,6 +21,8 @@ import { loadInto } from './browser/extensions'
 import { mcp } from './agent/mcp'
 import { generateBrief, existingBrief } from './agent/brief'
 import { engine } from './agent/engine'
+import { initializeUpdates } from './security/updates'
+import { initializeThreats } from './security/threats'
 
 const windows = new Set<VoyagerWindow>()
 let focused: VoyagerWindow | null = null
@@ -44,6 +47,17 @@ function developmentRendererUrl(raw: string | undefined): string | null {
 
 const DEV_URL = developmentRendererUrl(process.env.ELECTRON_RENDERER_URL)
 
+// This branch is compiled out of release builds. A test build can only create
+// its own disposable profile; it never accepts a profile path from arguments.
+if (__SECURITY_TEST__) {
+  const isolated = mkdtempSync(join(tmpdir(), 'voyager-runtime-security-'))
+  app.setPath('userData', isolated)
+  app.setPath('sessionData', isolated)
+  app.setPath('downloads', isolated)
+  app.commandLine.appendSwitch('host-resolver-rules', 'MAP * 127.0.0.1')
+  app.commandLine.appendSwitch('disable-background-networking')
+}
+
 app.setName('Voyager')
 if (process.platform === 'win32') app.setAppUserModelId('com.keeganarko.voyager')
 
@@ -57,6 +71,7 @@ protocol.registerSchemesAsPrivileged([
 // Sandboxing is the default policy for every renderer, including the privileged
 // Voyager UI. Individual webPreferences still document that boundary.
 app.enableSandbox()
+app.commandLine.appendSwitch('site-per-process')
 
 function registerUiProtocol(): void {
   protocol.handle('voyager-app', (request) => {
@@ -98,7 +113,7 @@ let briefRunning = false
 async function maybeGenerateBrief(): Promise<void> {
   if (briefRunning) return
   const settings = getSettings()
-  if (!settings.brief.enabled || !settings.ai.apiKey) return
+  if (!settings.brief.enabled || !settings.ai.apiKey || !settings.ai.contextConsent || settings.privacy.paused) return
   const win = focused ?? [...windows][0]
   if (!win) return
   if (existingBrief(win.profile.id)) return
@@ -182,9 +197,19 @@ async function createWindow(key = `w-${randomUUID()}`): Promise<VoyagerWindow> {
 
 app.whenReady().then(async () => {
   registerUiProtocol()
+  if (__SECURITY_TEST__) {
+    registerIpc(uiWindowForSender, pageWindowForSender, () => windows, () => focused)
+    setWindowResolver((wc) => windowForSender(wc.id))
+    const { runRuntimeSecurityTests } = await import('./security/runtimeSelfTest')
+    const success = await runRuntimeSecurityTests(createWindow)
+    app.exit(success ? 0 : 1)
+    return
+  }
   openDb()
   ensureDefaultProfile()
   seedBuiltinSkills()
+  await initializeThreats()
+  await initializeUpdates()
 
   const settings = getSettings()
   nativeTheme.themeSource = settings.appearance.theme

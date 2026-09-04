@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { EventEmitter } from 'node:events'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const store = vi.hoisted(() => ({ decision: vi.fn() }))
 vi.mock('../src/main/store/db', () => ({
@@ -13,8 +14,8 @@ const perms = await import('../src/main/browser/permissions')
 const { originOf, AUTO_GRANTED, decide, setWindowResolver } = perms
 
 /** Just enough of a WebContents for `decide` — it only ever asks for the URL. */
-const fakeWc = (url: string): any => ({ getURL: () => url, once: vi.fn(), id: 1 })
-const fakeWin: any = { profile: { id: 'p1' }, showOverlay: vi.fn(), overlayMode: { kind: 'closed' } }
+const fakeWc = (url: string): any => Object.assign(new EventEmitter(), { getURL: () => url, isDestroyed: () => false, id: 1 })
+const fakeWin: any = { profile: { id: 'p1' }, showOverlay: vi.fn(), closeOverlay: vi.fn(), overlayMode: { kind: 'closed' } }
 const never = (): boolean => false
 
 describe('originOf', () => {
@@ -30,6 +31,7 @@ describe('originOf', () => {
 })
 
 describe('decide', () => {
+  afterEach(() => perms.cancelFor(fakeWin))
   beforeEach(() => {
     store.decision.mockReset().mockReturnValue(null)
     setWindowResolver(() => fakeWin)
@@ -91,5 +93,38 @@ describe('decide', () => {
     await Promise.resolve()
     expect(fakeWin.showOverlay).toHaveBeenCalledOnce()
     expect(fakeWin.showOverlay.mock.calls[0][0].kind).toBe('permission')
+  })
+})
+
+
+describe('permission boundaries', () => {
+  beforeEach(() => { store.decision.mockReset().mockReturnValue(null); setWindowResolver(() => fakeWin); fakeWin.profile.id = 'p1'; fakeWin.showOverlay.mockClear() })
+  afterEach(() => perms.cancelFor(fakeWin))
+  it('does not turn a saved microphone grant into camera access', async () => {
+    store.decision.mockImplementation((_p, _o, permission) => permission === 'media:audio' ? true : false)
+    expect(await decide(fakeWc('https://meet.example'), 'media', ['audio'], never)).toBe(true)
+    expect(await decide(fakeWc('https://meet.example'), 'media', ['video'], never)).toBe(false)
+    expect(perms.check(fakeWc('https://meet.example'), 'https://meet.example', 'media', never, 'video')).toBe(false)
+  })
+  it('denies unknown and newly excluded capabilities on synchronous checks', () => {
+    store.decision.mockReturnValue(true)
+    expect(perms.check(fakeWc('https://example.com'), 'https://example.com', 'unknown')).toBe(false)
+    expect(perms.check(fakeWc('https://example.com'), 'https://example.com', 'geolocation', () => true)).toBe(false)
+    expect(perms.checkOrigin('p1', 'https://example.com', 'usb', () => true)).toBe(false)
+  })
+  it('cancels pending consent on navigation and removes event listeners', async () => {
+    const wc = fakeWc('https://example.com')
+    const answer = decide(wc, 'geolocation', undefined, never)
+    wc.emit('did-start-navigation', { isMainFrame: true })
+    expect(await answer).toBe(false)
+    expect(wc.listenerCount('destroyed')).toBe(0)
+    expect(wc.listenerCount('did-start-navigation')).toBe(0)
+  })
+  it('does not accept consent from a different window', async () => {
+    const answer = decide(fakeWc('https://example.com'), 'geolocation', undefined, never)
+    const id = fakeWin.showOverlay.mock.calls.at(-1)[0].asks[0].id
+    perms.respond({ ...fakeWin }, id, true, true)
+    perms.respond(fakeWin, id, false, false)
+    expect(await answer).toBe(false)
   })
 })

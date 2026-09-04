@@ -1,3 +1,4 @@
+import { hasSecureStorage } from './secureStorage'
 import { safeStorage } from 'electron'
 import { kvGet, kvSet } from './db'
 import type { Settings } from '@shared/types'
@@ -54,6 +55,7 @@ export const DEFAULT_SETTINGS: Settings = {
     memoryEnabled: true,
     paused: false,
     sendDoNotTrack: true,
+    spellcheckEnabled: false,
     clearOnQuit: false
   },
   appearance: {
@@ -127,6 +129,7 @@ export function normalizeSettings(value: unknown): Settings {
       memoryEnabled: boolean(privacy.memoryEnabled, DEFAULT_SETTINGS.privacy.memoryEnabled),
       paused: boolean(privacy.paused, DEFAULT_SETTINGS.privacy.paused),
       sendDoNotTrack: boolean(privacy.sendDoNotTrack, DEFAULT_SETTINGS.privacy.sendDoNotTrack),
+      spellcheckEnabled: boolean(privacy.spellcheckEnabled, DEFAULT_SETTINGS.privacy.spellcheckEnabled),
       clearOnQuit: boolean(privacy.clearOnQuit, DEFAULT_SETTINGS.privacy.clearOnQuit)
     },
     appearance: {
@@ -208,7 +211,7 @@ export function setSettings(patch: Partial<Settings>): Settings {
 
 /** Key at rest is encrypted with the OS credential store, never plaintext. */
 export function setApiKey(key: string): void {
-  if (!safeStorage.isEncryptionAvailable()) {
+  if (!hasSecureStorage()) {
     throw new Error(
       'Secure credential storage is unavailable. Voyager refused to save the API key; ' +
       'configure the operating system keychain/credential store and try again.'
@@ -220,11 +223,15 @@ export function setApiKey(key: string): void {
 export function getApiKey(): string | null {
   const stored = kvGet<string | null>(API_KEY, null)
   if (!stored) return process.env.ANTHROPIC_API_KEY ?? null
+  if (!hasSecureStorage()) {
+    if (stored.startsWith('plain:')) kvSet(API_KEY, null)
+    return process.env.ANTHROPIC_API_KEY ?? null
+  }
   // Migrate a key written by an older build. If encryption is unavailable,
   // purge the plaintext rather than continuing to treat SQLite as a vault.
   if (stored.startsWith('plain:')) {
     const legacy = stored.slice(6)
-    if (safeStorage.isEncryptionAvailable()) {
+    if (hasSecureStorage()) {
       setApiKey(legacy)
       return legacy
     }
@@ -246,7 +253,11 @@ export function clearApiKey(): void {
 export function isExcluded(url: string, settings = getSettings()): boolean {
   if (!url) return true
   let host: string
-  try { host = new URL(url).hostname } catch { return true }
+  try {
+    const parsed = new URL(url)
+    if (!['https:', 'http:'].includes(parsed.protocol)) return true
+    host = parsed.hostname.replace(/\.$/, '')
+  } catch { return true }
   // `file:`, `data:` and `about:` parse cleanly and carry no host, so no entry
   // in the list can ever match one. Treat them as excluded rather than as
   // universally readable.

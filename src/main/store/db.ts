@@ -1,7 +1,10 @@
+import { hasSecureStorage } from './secureStorage'
 import Database from 'better-sqlite3'
 import { app, safeStorage } from 'electron'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { databaseKey } from './databaseKey'
+import { openEncryptedDatabase } from './encryptedDatabase'
 import type {
   MemoryItem, MemoryKind, Skill, HistoryEntry, Conversation, ChatMessage,
   Profile, TabGroup, McpServerConfig, Brief, Bookmark, SitePermission, SavedLogin
@@ -11,9 +14,9 @@ let db: Database.Database
 
 export function openDb(): Database.Database {
   if (db) return db
-  db = new Database(join(app.getPath('userData'), 'voyager.db'))
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
+  const key = databaseKey()
+  try { db = openEncryptedDatabase(join(app.getPath('userData'), 'voyager.db'), key) }
+  finally { key.fill(0) }
   migrate()
   return db
 }
@@ -594,6 +597,10 @@ export function saveMessage(m: ChatMessage): void {
     .run(new Date().toISOString(), m.conversationId)
 }
 
+export function ownsConversation(profileId: string, conversationId: string): boolean {
+  return !!db.prepare('SELECT 1 FROM conversations WHERE profile_id=? AND id=?').get(profileId, conversationId)
+}
+
 export function loadMessages(conversationId: string): ChatMessage[] {
   return (db.prepare(
     'SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at'
@@ -632,7 +639,7 @@ const CONNECTOR_SECRET_PREFIX = 'voyager-secret-v1:'
 
 function protectConnectorSecrets(c: McpServerConfig): McpServerConfig {
   const values = [...Object.values(c.env ?? {}), ...Object.values(c.headers ?? {})]
-  if (values.some(Boolean) && !safeStorage.isEncryptionAvailable()) {
+  if (values.some(Boolean) && !hasSecureStorage()) {
     throw new Error('Secure credential storage is unavailable. Voyager refused to save connector secrets.')
   }
   const protect = (source: Record<string, string> | undefined): Record<string, string> | undefined => {
@@ -655,6 +662,7 @@ function revealConnectorSecrets(c: McpServerConfig): { config: McpServerConfig; 
         return [key, value]
       }
       try {
+        if (!hasSecureStorage()) throw new Error('Secure storage unavailable')
         return [key, safeStorage.decryptString(
           Buffer.from(value.slice(CONNECTOR_SECRET_PREFIX.length), 'base64')
         )]
@@ -673,9 +681,10 @@ export function listMcpServers(): McpServerConfig[] {
       const { config, legacy } = revealConnectorSecrets(
         JSON.parse(row.config_json) as McpServerConfig
       )
+      if (legacy && !hasSecureStorage()) continue
       configs.push(config)
       // One-way migration from builds that stored connector tokens as JSON.
-      if (legacy && safeStorage.isEncryptionAvailable()) {
+      if (legacy && hasSecureStorage()) {
         const protectedConfig = protectConnectorSecrets(config)
         db.prepare('UPDATE mcp_servers SET config_json=? WHERE id=?')
           .run(JSON.stringify(protectedConfig), config.id)

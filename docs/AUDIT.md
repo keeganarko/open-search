@@ -1,5 +1,10 @@
 # Voyager browser audit
 
+> Historical build/UI audit. For the later security findings, local fixes,
+> GitHub publication review and current readiness decision, use
+> [the security audit](SECURITY-AUDIT-2026-09-04.md). The verification below does
+> not validate subsequent changes or establish that all vulnerabilities are fixed.
+
 Audit date: 2026-09-04
 Scope: application source, Electron boundaries, browser sessions, assistant and
 connector execution, local data, Windows packaging, and the primary desktop UI.

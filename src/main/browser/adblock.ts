@@ -5,6 +5,7 @@ import { join, dirname } from 'node:path'
 import type { Session } from 'electron'
 
 let blockerPromise: Promise<ElectronBlocker> | null = null
+let readyBlocker: ElectronBlocker | null = null
 const attached = new WeakSet<Session>()
 const counted = new WeakSet<ElectronBlocker>()
 
@@ -45,7 +46,7 @@ export async function attachBlocker(ses: Session): Promise<void> {
   try {
     blockerPromise ??= loadBlocker()
     const blocker = await blockerPromise
-    blocker.enableBlockingInSession(ses)
+    readyBlocker = blocker
   } catch (err) {
     // A failed filter-list fetch must not stop the browser from starting.
     console.error('[voyager] ad blocker unavailable:', err)
@@ -55,13 +56,15 @@ export async function attachBlocker(ses: Session): Promise<void> {
 }
 
 export async function detachBlocker(ses: Session): Promise<void> {
-  if (!blockerPromise) return
-  try {
-    const blocker = await blockerPromise
-    blocker.disableBlockingInSession(ses)
-  } finally {
-    attached.delete(ses)
-  }
+  attached.delete(ses)
+}
+
+// Voyager owns the one Electron request listener. Disabling ads must never
+// uninstall malware protection. Cosmetic script injection is not enabled.
+export function filterRequest(ses: Session, details: Electron.OnBeforeRequestListenerDetails,
+  callback: (response: Electron.CallbackResponse) => void): void {
+  if (attached.has(ses) && readyBlocker) readyBlocker.onBeforeRequest(details, callback)
+  else callback({})
 }
 
 export function blockedCount(webContentsId: number): number {

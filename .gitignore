@@ -3,6 +3,7 @@ out/
 release/
 dist/
 *.tsbuildinfo
+electron.vite.config.*.mjs
 
 # Local working memory — never committed, never pushed. See context/README.md.
 context/
@@ -11,3 +12,21 @@ context/
 *.log
 .env
 .env.*
+
+# Browser profiles, exported secrets, and signing material must stay local.
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.enc
+*.pem
+*.key
+*.p12
+*.pfx
+user-data/
+.agents/
+.codex/
+
+# Generated platform authentication helper and isolated runtime evidence.
+resources/native/
+security-results/
