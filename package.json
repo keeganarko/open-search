@@ -46,7 +46,7 @@
     "react-dom": "^19.1.1",
     "typescript": "^5.9.2",
     "vite": "^7.0.0",
-    "vitest": "^3.2.7"
+    "vitest": "^4.1.11"
   },
   "build": {
     "appId": "com.keeganarko.voyager",
