@@ -119,6 +119,7 @@ export class VoyagerWindow extends EventEmitter {
         preload: join(__dirname, '../preload/chrome.js'),
         contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true,
         devTools: !app.isPackaged,
+        spellcheck: getSettings().privacy.spellcheckEnabled,
         // The opening signature has to start before anyone has clicked anything.
         // Tab views keep Chromium's default, so pages still cannot autoplay.
         autoplayPolicy: 'no-user-gesture-required'
@@ -131,6 +132,7 @@ export class VoyagerWindow extends EventEmitter {
         preload: join(__dirname, '../preload/chrome.js'),
         contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true,
         devTools: !app.isPackaged,
+        spellcheck: getSettings().privacy.spellcheckEnabled,
         transparent: true
       }
     })

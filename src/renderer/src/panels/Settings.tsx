@@ -186,7 +186,8 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
             Spell check
           </label>
           <div className="desc">On Windows and Linux, enabling spell check can download dictionaries from Google’s CDN.
-            The built-in checker processes typed text locally. macOS uses the system spell checker.</div>
+            The built-in checker processes typed text locally. macOS uses the system spell checker.
+            Restart Voyager after enabling it for existing tabs and the sidebar.</div>
           <label className="check">
             <input type="checkbox" checked={p.sendDoNotTrack}
               onChange={(e) => update({ privacy: { sendDoNotTrack: e.target.checked } })} />

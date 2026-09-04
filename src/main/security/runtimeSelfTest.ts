@@ -173,13 +173,16 @@ export async function runRuntimeSecurityTests(createWindow: () => Promise<Voyage
     await logging.netLog.stopLogging()
     copyFileSync(netlog, join(dirname(report), 'runtime-network.json'))
     logging = undefined
+    await run('Disabled spellchecking makes no dictionary download request', () => {
+      assert(!readFileSync(netlog, 'utf8').includes('/edgedl/chrome/dict/'))
+    })
   } catch (error) { results.push({ name: 'Packaged setup', passed: false, error: String(error) }) }
   finally {
     if (logging) await logging.netLog.stopLogging().catch(() => {})
     http?.close(); https?.close()
     clearTimeout(deadline)
   }
-  const passed = results.length >= 14 && results.every((result) => result.passed)
+  const passed = results.length >= 15 && results.every((result) => result.passed)
   writeFileSync(report, JSON.stringify({ passed, versions: process.versions, platform: process.platform,
     isolatedProfile: app.getPath('userData'), fixtureRequests: hits, results,
     limitations: ['Automated tests, not an independent penetration test.',

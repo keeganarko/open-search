@@ -112,7 +112,9 @@ Spellchecking defaults off. On Windows and Linux, enabling it can download
 language dictionaries from Google's CDN; the operating-system checker is used
 on macOS. The Privacy setting describes this traffic. Electron documents that
 local spellchecking does not send typed text to Google. Controlled NetLog tests
-are useful for discovering these connections but are not a complete packet
+check that disabled spellchecking does not request dictionaries. Enabling it
+requires a restart for existing tabs and the sidebar. These tests
+are useful for discovering connections but are not a complete packet
 capture or a proxy/VPN leakage assessment.
 
 ## 3. Packaged validation and independent review

@@ -97,7 +97,7 @@ export class TabManager extends EventEmitter {
         webSecurity: true,
         safeDialogs: true,
         safeDialogsMessage: 'This page has opened too many dialogs.',
-        spellcheck: true,
+        spellcheck: getSettings().privacy.spellcheckEnabled,
         scrollBounce: true,
         // Chromium's built-in PDF viewer. Without this a PDF link downloads
         // instead of rendering, which is not what a browser does.
