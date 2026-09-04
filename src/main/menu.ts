@@ -1,9 +1,12 @@
-import { Menu, MenuItem, app, clipboard, shell, type MenuItemConstructorOptions } from 'electron'
-import { post, type KiaWindow } from './browser/window'
+import {
+  Menu, MenuItem, app, clipboard, shell, type MenuItemConstructorOptions, type WebContents
+} from 'electron'
+import { post, type VoyagerWindow } from './browser/window'
 import { openExternal } from './browser/session'
 import * as db from './store/db'
+import { getSettings, setSettings } from './store/settings'
 
-type GetWindow = () => KiaWindow | null
+type GetWindow = () => VoyagerWindow | null
 
 /**
  * index.ts owns the window set, and importing it here would be a cycle, so it
@@ -26,7 +29,7 @@ function skillItems(send: (channel: string, ...args: unknown[]) => void): MenuIt
     ...withKeys.map((s) => ({
       label: s.name,
       accelerator: s.hotkey ?? undefined,
-      click: () => send('kia:ask', { prompt: '', skill: s.slug })
+      click: () => send('voyager:ask', { prompt: '', skill: s.slug })
     })),
     { type: 'separator' as const }
   ]
@@ -45,19 +48,19 @@ export function buildAppMenu(getWindow: GetWindow): void {
   // belong at the foot of File.
   const appMenu: MenuItemConstructorOptions[] = mac
     ? [{
-        label: 'Open Search',
+        label: 'Voyager',
         submenu: [
-          { role: 'about', label: 'About Open Search' },
+          { role: 'about', label: 'About Voyager' },
           { type: 'separator' },
-          { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => send('kia:open-settings') },
+          { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => send('voyager:open-settings') },
           { type: 'separator' },
           { role: 'services' },
           { type: 'separator' },
-          { role: 'hide', label: 'Hide Open Search' },
+          { role: 'hide', label: 'Hide Voyager' },
           { role: 'hideOthers' },
           { role: 'unhide' },
           { type: 'separator' },
-          { role: 'quit', label: 'Quit Open Search' }
+          { role: 'quit', label: 'Quit Voyager' }
         ]
       }]
     : []
@@ -79,7 +82,9 @@ export function buildAppMenu(getWindow: GetWindow): void {
         },
         {
           label: 'Reopen Closed Tab', accelerator: 'CmdOrCtrl+Shift+T',
-          click: () => send('kia:reopen-closed-tab')
+          click: () => {
+            if (!w()?.tabs.reopenClosed()) send('voyager:toast', 'Nothing to reopen.')
+          }
         },
         { type: 'separator' },
         {
@@ -94,17 +99,17 @@ export function buildAppMenu(getWindow: GetWindow): void {
           // a duplicate to whichever item registers first — which was this one,
           // so pinning never fired. Pin won; ⌘P's print sheet can still save a PDF.
           label: 'Save as PDF…',
-          click: () => send('kia:print-pdf')
+          click: () => send('voyager:print-pdf')
         },
         { type: 'separator' },
         {
           label: 'Save Page As Deck…',
-          click: () => send('kia:open-deck-composer')
+          click: () => send('voyager:open-deck-composer')
         },
         // No application menu off macOS, so these land here instead.
         ...(mac ? [] : [
           { type: 'separator' } as MenuItemConstructorOptions,
-          { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => send('kia:open-settings') },
+          { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => send('voyager:open-settings') },
           { type: 'separator' } as MenuItemConstructorOptions,
           { role: 'quit', label: 'Exit' } as MenuItemConstructorOptions
         ])
@@ -119,7 +124,7 @@ export function buildAppMenu(getWindow: GetWindow): void {
         { type: 'separator' },
         {
           label: 'Find in Page…', accelerator: 'CmdOrCtrl+F',
-          click: () => send('kia:open-find')
+          click: () => send('voyager:open-find')
         },
         {
           label: 'Copy Current URL', accelerator: 'CmdOrCtrl+Shift+C',
@@ -160,7 +165,7 @@ export function buildAppMenu(getWindow: GetWindow): void {
           click: () => w()?.toggleRail()
         },
         {
-          label: 'Toggle Open Search Sidebar', accelerator: 'CmdOrCtrl+Shift+K',
+          label: 'Toggle Voyager Sidebar', accelerator: 'CmdOrCtrl+Shift+K',
           click: () => w()?.toggleSidebar()
         },
         {
@@ -178,7 +183,8 @@ export function buildAppMenu(getWindow: GetWindow): void {
           click: () => w()?.tabs.active()?.view.webContents.toggleDevTools()
         },
         {
-          label: 'Developer Tools (Open Search chrome)', accelerator: 'CmdOrCtrl+Alt+Shift+I',
+          label: 'Developer Tools (Voyager UI)', accelerator: 'CmdOrCtrl+Alt+Shift+I',
+          visible: !app.isPackaged,
           click: () => w()?.chrome.webContents.toggleDevTools()
         }
       ]
@@ -199,11 +205,11 @@ export function buildAppMenu(getWindow: GetWindow): void {
           // Chrome's own binding on each platform: ⌘Y on the Mac, Ctrl+H elsewhere.
           label: 'Show All History',
           accelerator: process.platform === 'darwin' ? 'Cmd+Y' : 'Ctrl+H',
-          click: () => send('kia:open-history')
+          click: () => send('voyager:open-history')
         },
         {
           label: 'Clear History…',
-          click: () => send('kia:open-privacy')
+          click: () => send('voyager:open-privacy')
         }
       ]
     },
@@ -254,16 +260,16 @@ export function buildAppMenu(getWindow: GetWindow): void {
           }
         },
         { type: 'separator' },
-        { label: 'Organize Tabs with Open Search', click: () => send('kia:auto-organize') },
-        { label: 'Tidy Idle Tabs…', click: () => send('kia:open-tidy') }
+        { label: 'Organize Tabs with Voyager', click: () => send('voyager:auto-organize') },
+        { label: 'Tidy Idle Tabs…', click: () => send('voyager:open-tidy') }
       ]
     },
     {
-      label: 'Open Search',
+      label: 'Voyager',
       submenu: [
         {
-          label: 'Ask Open Search', accelerator: 'CmdOrCtrl+K',
-          click: () => { w()?.toggleSidebar(true); send('kia:focus-composer') }
+          label: 'Ask Voyager', accelerator: 'CmdOrCtrl+K',
+          click: () => { w()?.toggleSidebar(true); send('voyager:focus-composer') }
         },
         {
           label: 'Command Palette', accelerator: 'CmdOrCtrl+P',
@@ -271,19 +277,23 @@ export function buildAppMenu(getWindow: GetWindow): void {
         },
         {
           label: 'Focus Address Bar', accelerator: 'CmdOrCtrl+L',
-          click: () => send('kia:focus-omnibox')
+          click: () => send('voyager:focus-omnibox')
         },
         { type: 'separator' },
         ...skillItems(send),
-        { label: 'Skills…', click: () => send('kia:open-skills') },
-        { label: 'Memory…', click: () => send('kia:open-memory') },
-        { label: 'Connectors…', click: () => send('kia:open-connectors') },
-        { label: 'Morning Brief', accelerator: 'CmdOrCtrl+Shift+B', click: () => send('kia:open-brief') },
+        { label: 'Skills…', click: () => send('voyager:open-skills') },
+        { label: 'Memory…', click: () => send('voyager:open-memory') },
+        { label: 'Connectors…', click: () => send('voyager:open-connectors') },
+        { label: 'Morning Brief', accelerator: 'CmdOrCtrl+Shift+B', click: () => send('voyager:open-brief') },
         { type: 'separator' },
         {
           label: 'Pause Page Reading',
           type: 'checkbox',
-          click: (item) => send('kia:set-paused', item.checked)
+          checked: getSettings().privacy.paused,
+          click: (item) => {
+            setSettings({ privacy: { paused: item.checked } } as any)
+            send('voyager:set-paused', item.checked)
+          }
         }
       ]
     },
@@ -296,13 +306,13 @@ export function buildAppMenu(getWindow: GetWindow): void {
             const win = w(); const t = win?.tabs.active()
             if (win && t) {
               db.addBookmark(win.profile.id, t.state.url, t.state.title, null)
-              send('kia:toast', `Bookmarked “${t.state.title}”`)
+              send('voyager:toast', `Bookmarked “${t.state.title}”`)
             }
           }
         },
         {
           label: 'Show All Bookmarks', accelerator: 'CmdOrCtrl+Shift+O',
-          click: () => send('kia:open-bookmarks')
+          click: () => send('voyager:open-bookmarks')
         }
       ]
     },
@@ -313,7 +323,7 @@ export function buildAppMenu(getWindow: GetWindow): void {
     {
       label: 'Help',
       submenu: [
-        { label: 'Open Search Keyboard Shortcuts', click: () => send('kia:open-shortcuts') },
+        { label: 'Voyager Keyboard Shortcuts', click: () => send('voyager:open-shortcuts') },
         {
           label: 'Anthropic Console (get an API key)',
           click: () => shell.openExternal('https://console.anthropic.com/settings/keys')
@@ -325,13 +335,13 @@ export function buildAppMenu(getWindow: GetWindow): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-function zoomBy(win: KiaWindow | null, delta: number): void {
+function zoomBy(win: VoyagerWindow | null, delta: number): void {
   const tab = win?.tabs.active()
   if (!tab) return
   win!.tabs.setZoom(tab.id, tab.view.webContents.getZoomLevel() + delta)
 }
 
-function cycleTab(win: KiaWindow | null, dir: number): void {
+function cycleTab(win: VoyagerWindow | null, dir: number): void {
   if (!win) return
   const list = win.tabs.list()
   if (list.length < 2) return
@@ -340,7 +350,7 @@ function cycleTab(win: KiaWindow | null, dir: number): void {
   win.tabs.activate(next.id)
 }
 
-function splitWithNext(win: KiaWindow | null): void {
+function splitWithNext(win: VoyagerWindow | null): void {
   if (!win) return
   const list = win.tabs.list()
   const i = list.findIndex((t) => t.id === win.tabs.activeId)
@@ -350,19 +360,19 @@ function splitWithNext(win: KiaWindow | null): void {
 }
 
 /** Right-click menu inside a page. */
-export function showPageContextMenu(win: KiaWindow, tabId: string, params: Electron.ContextMenuParams): void {
+export function showPageContextMenu(win: VoyagerWindow, tabId: string, params: Electron.ContextMenuParams): void {
   const tab = win.tabs.get(tabId)
   if (!tab) return
   const wc = tab.view.webContents
   const menu = new Menu()
   const ask = (prompt: string, skill?: string) => () => {
     win.toggleSidebar(true)
-    post(win.chrome.webContents, 'kia:ask', { prompt, skill, tabId })
+    post(win.chrome.webContents, 'voyager:ask', { prompt, skill, tabId })
   }
 
   if (params.selectionText) {
     const short = params.selectionText.trim().slice(0, 28)
-    menu.append(new MenuItem({ label: `Ask Open Search about “${short}…”`, click: ask('') }))
+    menu.append(new MenuItem({ label: `Ask Voyager about “${short}…”`, click: ask('') }))
     menu.append(new MenuItem({ label: 'Explain this', click: ask('', 'explain') }))
     menu.append(new MenuItem({ label: 'Rewrite this…', click: ask('', 'write') }))
     menu.append(new MenuItem({ type: 'separator' }))
@@ -373,7 +383,7 @@ export function showPageContextMenu(win: KiaWindow, tabId: string, params: Elect
     }))
   } else {
     menu.append(new MenuItem({ label: 'Summarize this page', click: ask('', 'summary') }))
-    menu.append(new MenuItem({ label: 'Ask Open Search about this page', click: ask('') }))
+    menu.append(new MenuItem({ label: 'Ask Voyager about this page', click: ask('') }))
     menu.append(new MenuItem({ type: 'separator' }))
   }
 
@@ -412,7 +422,7 @@ export function showPageContextMenu(win: KiaWindow, tabId: string, params: Elect
     menu.append(new MenuItem({ type: 'separator' }))
     menu.append(new MenuItem({ role: 'cut' }))
     menu.append(new MenuItem({ role: 'paste' }))
-    menu.append(new MenuItem({ label: 'Write with Open Search…', click: ask('', 'write') }))
+    menu.append(new MenuItem({ label: 'Write with Voyager…', click: ask('', 'write') }))
     for (const suggestion of params.dictionarySuggestions.slice(0, 4)) {
       menu.append(new MenuItem({ label: suggestion, click: () => wc.replaceMisspelling(suggestion) }))
     }
@@ -428,9 +438,34 @@ export function showPageContextMenu(win: KiaWindow, tabId: string, params: Elect
   menu.popup({ window: win.window })
 }
 
+/** Native edit menu for Voyager's own text fields, including reliable paste. */
+export function showUiContextMenu(
+  win: VoyagerWindow, wc: WebContents, params: Electron.ContextMenuParams
+): void {
+  if (!params.isEditable && !params.selectionText) return
+  const menu = new Menu()
+  if (params.isEditable) {
+    menu.append(new MenuItem({ role: 'undo' }))
+    menu.append(new MenuItem({ role: 'redo' }))
+    menu.append(new MenuItem({ type: 'separator' }))
+    menu.append(new MenuItem({ role: 'cut' }))
+  }
+  menu.append(new MenuItem({ role: 'copy' }))
+  if (params.isEditable) {
+    menu.append(new MenuItem({ role: 'paste' }))
+    menu.append(new MenuItem({ role: 'pasteAndMatchStyle' }))
+    menu.append(new MenuItem({ type: 'separator' }))
+    menu.append(new MenuItem({ role: 'selectAll' }))
+    for (const suggestion of params.dictionarySuggestions.slice(0, 4)) {
+      menu.append(new MenuItem({ label: suggestion, click: () => wc.replaceMisspelling(suggestion) }))
+    }
+  }
+  menu.popup({ window: win.window })
+}
+
 export function setAboutPanel(): void {
   app.setAboutPanelOptions({
-    applicationName: 'Open Search',
+    applicationName: 'Voyager',
     applicationVersion: app.getVersion(),
     credits: 'A local, AI-native browser.'
   })

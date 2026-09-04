@@ -1,11 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'node:crypto'
-import type { KiaWindow } from '../browser/window'
+import type { VoyagerWindow } from '../browser/window'
 import type { ChatMessage, Citation, ContextRef, ToolStep, ActionClass } from '@shared/types'
 import type { StreamEvent } from '@shared/ipc'
 import { getSettings } from '../store/settings'
-import { browserTools, serverTools, type KiaTool } from './tools'
-import { resolveAttachments, renderMemory, renderTabList } from './context'
+import { browserTools, serverTools, type VoyagerTool } from './tools'
+import { escapeContextText, resolveAttachments, renderMemory, renderTabList } from './context'
 import { mcp } from './mcp'
 import * as db from '../store/db'
 
@@ -23,7 +23,7 @@ export function requiresApproval(cls: ActionClass, auto: ActionClass[]): boolean
   return !auto.includes(cls)
 }
 
-const SYSTEM = `You are Open Search, the assistant built into the user's web browser.
+const SYSTEM = `You are Voyager, the assistant built into the user's web browser.
 
 You can see the tabs the user has open, read the page they are on, search their
 own browsing history, and use whatever connectors they have set up. You answer
@@ -67,11 +67,12 @@ export interface SendOptions {
 type Emit = (e: StreamEvent) => void
 
 interface Pending {
+  win: VoyagerWindow
   resolve: (approved: boolean) => void
 }
 
 export class AgentEngine {
-  private aborts = new Map<string, AbortController>()
+  private aborts = new Map<string, { controller: AbortController; win: VoyagerWindow }>()
   private pendingApprovals = new Map<string, Pending>()
 
   private client(): Anthropic {
@@ -81,11 +82,25 @@ export class AgentEngine {
   }
 
   stop(messageId: string): void {
-    this.aborts.get(messageId)?.abort()
+    this.aborts.get(messageId)?.controller.abort()
     this.aborts.delete(messageId)
     // Unblock anything sitting on an approval so the loop can unwind.
     for (const [id, p] of this.pendingApprovals) {
       if (id.startsWith(messageId)) { p.resolve(false); this.pendingApprovals.delete(id) }
+    }
+  }
+
+  /** Unblock approval sheets that belonged to a window which has gone away. */
+  cancelFor(win: VoyagerWindow): void {
+    for (const [messageId, active] of this.aborts) {
+      if (active.win !== win) continue
+      active.controller.abort()
+      this.aborts.delete(messageId)
+    }
+    for (const [id, pending] of this.pendingApprovals) {
+      if (pending.win !== win) continue
+      pending.resolve(false)
+      this.pendingApprovals.delete(id)
     }
   }
 
@@ -98,7 +113,7 @@ export class AgentEngine {
     return requiresApproval(cls, getSettings().approvals.auto)
   }
 
-  async send(win: KiaWindow, opts: SendOptions, emit: Emit): Promise<void> {
+  async send(win: VoyagerWindow, opts: SendOptions, emit: Emit): Promise<void> {
     const settings = getSettings()
     const profileId = win.profile.id
 
@@ -133,7 +148,7 @@ export class AgentEngine {
     if (memory.length) db.touchMemory(memory.map((m) => m.id))
 
     const preamble: string[] = []
-    if (opts.persona) preamble.push(`<profile>${opts.persona}</profile>`)
+    if (opts.persona) preamble.push(`<profile>${escapeContextText(opts.persona)}</profile>`)
     if (memory.length) preamble.push(renderMemory(memory))
     preamble.push(renderTabList(win))
     if (settings.privacy.paused) {
@@ -152,7 +167,7 @@ export class AgentEngine {
     }
     messages.push({
       role: 'user',
-      content: `${preamble.join('\n\n')}\n\n<request>\n${opts.text}\n</request>`
+      content: `${preamble.join('\n\n')}\n\n<request>\n${escapeContextText(opts.text)}\n</request>`
     })
 
     // ——— tools ————————————————————————————————————————————
@@ -170,7 +185,7 @@ export class AgentEngine {
 
     // ——— run ——————————————————————————————————————————————
     const controller = new AbortController()
-    this.aborts.set(messageId, controller)
+    this.aborts.set(messageId, { controller, win })
 
     const assistant: ChatMessage = {
       id: messageId, conversationId, role: 'assistant', text: '', thinking: null,
@@ -179,8 +194,8 @@ export class AgentEngine {
     }
 
     try {
-      let guard = 0
-      while (guard++ < 24) {
+      let finished = false
+      for (let round = 0; round < 24; round++) {
         const stream = client.messages.stream({
           model: settings.ai.model,
           max_tokens: 64000,
@@ -241,6 +256,7 @@ export class AgentEngine {
 
         if (message.stop_reason === 'refusal') {
           assistant.error = 'The model declined this request.'
+          emit({ type: 'error', messageId, message: assistant.error })
           break
         }
 
@@ -256,6 +272,7 @@ export class AgentEngine {
               cacheRead: message.usage.cache_read_input_tokens ?? 0
             }
           })
+          finished = true
           break
         }
 
@@ -263,14 +280,15 @@ export class AgentEngine {
 
         const results: Anthropic.ToolResultBlockParam[] = []
         for (const use of toolUses) {
-          const result = await this.runTool(use, localByName, assistant, messageId, emit)
+          const result = await this.runTool(win, use, localByName, assistant, messageId, emit)
           results.push(result)
         }
         messages.push({ role: 'user', content: results })
       }
 
-      if (guard >= 24 && !assistant.error) {
+      if (!finished && !assistant.error) {
         assistant.error = 'Stopped after 24 tool rounds without finishing.'
+        emit({ type: 'error', messageId, message: assistant.error })
       }
     } catch (err) {
       if (controller.signal.aborted) {
@@ -299,8 +317,9 @@ export class AgentEngine {
   }
 
   private async runTool(
+    win: VoyagerWindow,
     use: Anthropic.ToolUseBlock,
-    local: Map<string, KiaTool>,
+    local: Map<string, VoyagerTool>,
     assistant: ChatMessage,
     messageId: string,
     emit: Emit
@@ -343,7 +362,7 @@ export class AgentEngine {
       step.status = 'awaiting_approval'
       emit({ type: 'approval', messageId, step: { ...step } })
       const approved = await new Promise<boolean>((resolve) => {
-        this.pendingApprovals.set(step.id, { resolve })
+        this.pendingApprovals.set(step.id, { win, resolve })
       })
       if (!approved) {
         return finish('The user declined this action. Do not retry it; continue without it or ask what they would prefer.', 'denied')

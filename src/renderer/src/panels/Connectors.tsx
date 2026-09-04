@@ -15,7 +15,7 @@ interface Preset {
 }
 
 /**
- * Presets are just prefilled MCP server configs. Open Search is a plain MCP client, so
+ * Presets are just prefilled MCP server configs. Voyager is a plain MCP client, so
  * anything that speaks MCP over stdio or streamable HTTP works here.
  *
  * The reference stdio servers for Gmail, Slack and GitHub were deprecated on npm
@@ -25,7 +25,7 @@ interface Preset {
 const PRESETS: Preset[] = [
   {
     name: 'GitHub',
-    note: 'Official hosted endpoint. Paste a personal access token as the Authorization header, with the scopes you want Open Search to have.',
+    note: 'Official hosted endpoint. Paste a personal access token as the Authorization header, with the scopes you want Voyager to have.',
     verified: true,
     config: {
       transport: 'http', url: 'https://api.githubcopilot.com/mcp/',
@@ -52,11 +52,16 @@ const PRESETS: Preset[] = [
   },
   {
     name: 'Filesystem',
-    note: 'Give it one directory. Open Search can then read and write only inside it.',
+    note: 'Give it one directory. Voyager can then read and write only inside it.',
     verified: true,
     config: {
       transport: 'stdio', command: 'npx',
-      args: ['-y', '@modelcontextprotocol/server-filesystem', '/Users/you/Documents']
+      args: [
+        '-y', '@modelcontextprotocol/server-filesystem',
+        window.voyager.platform === 'win32'
+          ? 'C:\\Users\\you\\Documents'
+          : window.voyager.platform === 'darwin' ? '/Users/you/Documents' : '/home/you/Documents'
+      ]
     }
   },
   {
@@ -117,14 +122,14 @@ export default function Connectors({ onClose, toast }: {
   const [editing, setEditing] = useState<McpServerConfig | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const refresh = (): void => { void window.kia.connectors.status().then(setServers) }
+  const refresh = (): void => { void window.voyager.connectors.status().then(setServers) }
   useEffect(refresh, [])
 
   const save = async (): Promise<void> => {
     if (!editing?.name) return toast('Give the connector a name.', 'error')
     setBusy(true)
     try {
-      setServers(await window.kia.connectors.save(editing))
+      setServers(await window.voyager.connectors.save(editing))
       setEditing(null)
     } catch (e) { toast(String((e as Error).message), 'error') }
     setBusy(false)
@@ -221,8 +226,8 @@ export default function Connectors({ onClose, toast }: {
       ) : (
         <>
           <div className="desc" style={{ marginBottom: 16, maxWidth: 640 }}>
-            Connectors are MCP servers. Open Search lists their tools to the model and sorts each one
-            into an action class — anything that writes outside Open Search stops and asks you first.
+            Connectors are MCP servers. Voyager lists their tools to the model and sorts each one
+            into an action class — anything that writes outside Voyager stops and asks you first.
           </div>
           {servers.length === 0 && <div className="empty">No connectors yet.</div>}
           {servers.map((s) => (
@@ -238,10 +243,10 @@ export default function Connectors({ onClose, toast }: {
                   {s.connected ? 'connected' : 'off'}
                 </span>
                 <button className="btn" onClick={async () => {
-                  setServers(await window.kia.connectors.reconnect(s.id))
+                  setServers(await window.voyager.connectors.reconnect(s.id))
                 }}>Reconnect</button>
                 <button className="btn danger" onClick={async () => {
-                  setServers(await window.kia.connectors.remove(s.id))
+                  setServers(await window.voyager.connectors.remove(s.id))
                 }}>Remove</button>
               </div>
               {s.tools.length > 0 && (

@@ -66,14 +66,14 @@ const api = {
     sidebarWidth: (px: number) => send(IPC.sidebarWidth, px),
     rail: (open?: boolean) => send(IPC.railToggle, open),
     railWidth: (px: number) => send(IPC.railWidth, px),
-    state: () => invoke<FullWindowState>('kia:window-state')
+    state: () => invoke<FullWindowState>(IPC.windowState)
   },
 
   // ——— overlay —————————————————————————————————————————————
   overlay: {
     open: (mode?: unknown) => send(IPC.paletteOpen, mode),
     close: () => send(IPC.paletteClose),
-    onMode: (fn: (mode: unknown) => void) => on('kia:overlay-mode', fn)
+    onMode: (fn: (mode: unknown) => void) => on('voyager:overlay-mode', fn)
   },
 
   // ——— profiles ————————————————————————————————————————————
@@ -124,7 +124,7 @@ const api = {
     list: (query?: string) => invoke<Skill[]>(IPC.skillList, query),
     save: (skill: Partial<Skill>) => invoke<Skill[]>(IPC.skillSave, skill),
     remove: (id: string) => invoke<Skill[]>(IPC.skillDelete, id),
-    reset: (slug: string) => invoke<Skill[]>('kia:skill-reset', slug),
+    reset: (slug: string) => invoke<Skill[]>(IPC.skillReset, slug),
     preview: (slug: string, input: string) =>
       invoke<{ prompt: string; attachments: ContextRef[] }>(IPC.skillRun, slug, input)
   },
@@ -143,7 +143,7 @@ const api = {
     search: (query: string, limit?: number) => invoke<HistoryEntry[]>(IPC.historySearch, query, limit),
     remove: (id: number) => invoke<boolean>(IPC.historyDelete, id),
     clear: (sinceIso?: string) => invoke<boolean>(IPC.historyClear, sinceIso),
-    forgetDomain: (domain: string) => invoke<boolean>('kia:history-forget-domain', domain)
+    forgetDomain: (domain: string) => invoke<boolean>(IPC.historyForgetDomain, domain)
   },
 
   // ——— bookmarks ———————————————————————————————————————————
@@ -159,7 +159,7 @@ const api = {
     get: () => invoke<Settings>(IPC.settingsGet),
     set: (patch: Record<string, unknown>) => invoke<Settings>(IPC.settingsSet, patch),
     testKey: (key: string) => invoke<{ ok: boolean; error?: string }>(IPC.settingsTestKey, key),
-    isExcluded: (url: string) => invoke<boolean>('kia:excluded', url)
+    isExcluded: (url: string) => invoke<boolean>(IPC.excluded, url)
   },
 
   /**
@@ -167,8 +167,7 @@ const api = {
    * a second window opens to no fanfare. Null means skip it entirely.
    */
   opening: () => invoke<{
-    story: boolean; volume: number
-    open: Uint8Array | null; settle: Uint8Array | null
+    story: boolean; sound: boolean; volume: number
   } | null>(IPC.startupSound),
   splashDone: () => send(IPC.splashDone),
 
@@ -184,12 +183,12 @@ const api = {
   brief: {
     get: () => invoke<Brief | null>(IPC.briefGet),
     generate: () => invoke<Brief>(IPC.briefGenerate),
-    onReady: (fn: (b: Brief) => void) => on<Brief>('kia:brief-ready', fn)
+    onReady: (fn: (b: Brief) => void) => on<Brief>('voyager:brief-ready', fn)
   },
   compose: {
     deck: (instruction: string) => invoke<{ path: string; title: string }>(IPC.deckGenerate, instruction),
     report: (instruction: string) => invoke<{ path: string; title: string }>(IPC.reportGenerate, instruction),
-    reveal: (path: string) => invoke<boolean>('kia:reveal-file', path)
+    reveal: (path: string) => invoke<boolean>(IPC.revealFile, path)
   },
 
   // ——— sync ————————————————————————————————————————————————
@@ -197,15 +196,17 @@ const api = {
     chooseFolder: () => invoke<string | null>(IPC.syncChooseFolder),
     export: (folder: string, passphrase: string) => invoke<{ path: string }>(IPC.syncExport, folder, passphrase),
     import: (passphrase: string, path?: string) =>
-      invoke<{ imported: Record<string, number> } | null>(IPC.syncImport, passphrase, path),
-    filename: () => invoke<string>('kia:sync-filename')
+      invoke<{
+        skills: number; memory: number; bookmarks: number; connectors: number; settings: boolean
+      } | null>(IPC.syncImport, passphrase, path),
+    filename: () => invoke<string>(IPC.syncFilename)
   },
 
   // ——— downloads ———————————————————————————————————————————
   downloads: {
     list: () => invoke<DownloadEntry[]>(IPC.downloadsList),
-    clear: () => invoke<DownloadEntry[]>('kia:downloads-clear'),
-    onChanged: (fn: (d: DownloadEntry[]) => void) => on<DownloadEntry[]>('kia:downloads-changed', fn)
+    clear: () => invoke<DownloadEntry[]>(IPC.downloadsClear),
+    onChanged: (fn: (d: DownloadEntry[]) => void) => on<DownloadEntry[]>('voyager:downloads-changed', fn)
   },
 
   // ——— permissions —————————————————————————————————————————
@@ -232,7 +233,7 @@ const api = {
     remove: (id: string) => invoke<SavedLogin[]>(IPC.loginDelete, id),
     /** The one deliberate way to read a password back, for "show". */
     reveal: (id: string) => invoke<string | null>(IPC.loginReveal, id),
-    respondSave: (accept: boolean) => send('kia:login-save-respond', accept)
+    respondSave: (accept: boolean) => send('voyager:login-save-respond', accept)
   },
 
   // ——— extensions ——————————————————————————————————————————
@@ -250,19 +251,19 @@ const api = {
 
   // ——— misc ————————————————————————————————————————————————
   openExternal: (url: string) => send(IPC.openExternal, url),
-  openPanel: (name: string) => send('kia:open-panel', name),
-  copy: (text: string) => invoke<boolean>('kia:clipboard-write', text),
+  openPanel: (name: string) => send('voyager:open-panel', name),
+  copy: (text: string) => invoke<boolean>(IPC.clipboardWrite, text),
   find: (text: string, forward = true) => send(IPC.findInPage, text, forward),
   pathForFile: (file: File) => webUtils.getPathForFile(file),
 
   // ——— main → renderer events ——————————————————————————————
   onState: (fn: (s: FullWindowState) => void) => on<FullWindowState>(IPC.stateChanged, fn),
   onLoadFailed: (fn: (p: { tabId: string; url: string; code: number; description: string }) => void) =>
-    on('kia:load-failed', fn),
-  onTabCrashed: (fn: (p: { tabId: string }) => void) => on('kia:tab-crashed', fn),
-  onAsk: (fn: (p: { prompt: string; skill?: string; tabId?: string }) => void) => on('kia:ask', fn),
-  onToast: (fn: (p: { message: string; kind?: 'info' | 'error' }) => void) => on('kia:toast', fn),
-  onPaused: (fn: (paused: boolean) => void) => on<boolean>('kia:set-paused', fn),
+    on('voyager:load-failed', fn),
+  onTabCrashed: (fn: (p: { tabId: string }) => void) => on('voyager:tab-crashed', fn),
+  onAsk: (fn: (p: { prompt: string; skill?: string; tabId?: string }) => void) => on('voyager:ask', fn),
+  onToast: (fn: (p: { message: string; kind?: 'info' | 'error' }) => void) => on('voyager:toast', fn),
+  onPaused: (fn: (paused: boolean) => void) => on<boolean>('voyager:set-paused', fn),
 
   // Menu-driven navigation. Each returns an unsubscribe.
   onOpen: (
@@ -270,13 +271,13 @@ const api = {
       | 'settings' | 'privacy' | 'history' | 'bookmarks' | 'memory' | 'skills' | 'connectors'
       | 'brief' | 'deck-composer' | 'shortcuts' | 'find' | 'tidy',
     fn: () => void
-  ) => onBare(`kia:open-${what}`, fn),
-  onFocus: (what: 'omnibox' | 'composer', fn: () => void) => onBare(`kia:focus-${what}`, fn),
-  onReopenClosedTab: (fn: () => void) => onBare('kia:reopen-closed-tab', fn),
-  onAutoOrganize: (fn: () => void) => onBare('kia:auto-organize', fn),
-  onPrintPdf: (fn: () => void) => onBare('kia:print-pdf', fn),
+  ) => onBare(`voyager:open-${what}`, fn),
+  onFocus: (what: 'omnibox' | 'composer', fn: () => void) => onBare(`voyager:focus-${what}`, fn),
+  onReopenClosedTab: (fn: () => void) => onBare('voyager:reopen-closed-tab', fn),
+  onAutoOrganize: (fn: () => void) => onBare('voyager:auto-organize', fn),
+  onPrintPdf: (fn: () => void) => onBare('voyager:print-pdf', fn),
 }
 
-export type KiaApi = typeof api
+export type VoyagerApi = typeof api
 
-contextBridge.exposeInMainWorld('kia', api)
+contextBridge.exposeInMainWorld('voyager', api)

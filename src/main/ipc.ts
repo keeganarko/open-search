@@ -1,16 +1,19 @@
 import { app, ipcMain, dialog, clipboard, nativeTheme } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { IPC, type StreamEvent } from '@shared/ipc'
-import { post, type KiaWindow } from './browser/window'
+import { post, type VoyagerWindow } from './browser/window'
 import type { Skill, McpServerConfig, ContextRef } from '@shared/types'
 import * as db from './store/db'
 import { getSettings, setSettings, isExcluded } from './store/settings'
 import { resetBuiltinSkill } from './store/builtinSkills'
 import { buildAppMenu } from './menu'
-import { openExternal, clearBrowsingData, listDownloads, clearDownloads, watchDownloads } from './browser/session'
+import {
+  openExternal, clearBrowsingData, listDownloads, clearDownloads,
+  watchDownloads, refreshSessionPrivacy
+} from './browser/session'
 import * as perms from './browser/permissions'
 import * as passwords from './browser/passwords'
 import * as extensions from './browser/extensions'
@@ -23,9 +26,12 @@ import { generateBrief, existingBrief } from './agent/brief'
 import { generateDeck, generateReport, revealFile } from './agent/deck'
 import { exportSync, importSync, SYNC_FILENAME } from './store/sync'
 import Anthropic from '@anthropic-ai/sdk'
+import { callPage } from './browser/pageBridge'
 
-/** Resolves the window a message came from; falls back to the focused one. */
-type ResolveWindow = (senderId: number) => KiaWindow | null
+/** Resolve exact UI/page ownership; unknown senders have no authority. */
+type ResolveWindow = (senderId: number) => VoyagerWindow | null
+type AllWindows = () => Iterable<VoyagerWindow>
+type GetFocusedWindow = () => VoyagerWindow | null
 
 /**
  * With more than one window open, "which window did this come from" cannot be
@@ -42,21 +48,55 @@ let openingClaimed = false
  * The credential behind an open "save this password?" sheet. It is held in main
  * only, so the sheet can ask about a password the renderer never sees.
  */
-let pendingLogin: { url: string; username: string; password: string } | null = null
+const pendingLogins = new WeakMap<
+  VoyagerWindow,
+  { url: string; username: string; password: string }
+>()
 
-export function registerIpc(resolveWindow: ResolveWindow): void {
-  const getWindow = (): KiaWindow | null => resolveWindow(senderCtx.getStore() ?? -1)
+export function registerIpc(
+  resolveWindow: ResolveWindow,
+  resolvePageWindow: ResolveWindow,
+  allWindows: AllWindows,
+  focusedWindow: GetFocusedWindow
+): void {
+  const getWindow = (): VoyagerWindow | null => resolveWindow(senderCtx.getStore() ?? -1)
   const win = () => {
     const w = getWindow()
     if (!w) throw new Error('No window')
     return w
   }
+  const isMainFrame = (e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean =>
+    !!e.senderFrame && e.senderFrame === e.sender.mainFrame
   const handle = (channel: string, fn: (...args: any[]) => any) =>
-    ipcMain.handle(channel, async (e, ...args) => senderCtx.run(e.sender.id, () => fn(...args)))
+    ipcMain.handle(channel, async (e, ...args) => {
+      if (!isMainFrame(e) || !resolveWindow(e.sender.id)) throw new Error('Unauthorized IPC sender')
+      return senderCtx.run(e.sender.id, () => fn(...args))
+    })
   const on = (channel: string, fn: (...args: any[]) => void) =>
-    ipcMain.on(channel, (e, ...args) => senderCtx.run(e.sender.id, () => {
-      try { fn(...args) } catch (err) { console.error(channel, err) }
-    }))
+    ipcMain.on(channel, (e, ...args) => {
+      if (!isMainFrame(e) || !resolveWindow(e.sender.id)) return
+      senderCtx.run(e.sender.id, () => {
+        try { fn(...args) } catch (err) { console.error(channel, err) }
+      })
+    })
+  const onPage = (
+    channel: string,
+    fn: (w: VoyagerWindow, senderId: number, ...args: any[]) => void
+  ) => ipcMain.on(channel, (e, ...args) => {
+    if (!isMainFrame(e)) return
+    const w = resolvePageWindow(e.sender.id)
+    if (!w) return
+    senderCtx.run(e.sender.id, () => {
+      try { fn(w, e.sender.id, ...args) } catch (err) { console.error(channel, err) }
+    })
+  })
+  const confirm = async (title: string, message: string, detail?: string): Promise<boolean> => {
+    const answer = await dialog.showMessageBox(win().window, {
+      type: 'warning', title, message, detail,
+      buttons: ['Cancel', 'Continue'], defaultId: 0, cancelId: 0, noLink: true
+    })
+    return answer.response === 1
+  }
 
   // ——— tabs ————————————————————————————————————————————————
   on(IPC.tabCreate, (opts) => { win().tabs.create(opts ?? {}) })
@@ -135,7 +175,13 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
   handle(IPC.profileUpdate, (id: string, patch: any) => { db.updateProfile(id, patch); return db.listProfiles() })
   handle(IPC.profileSwitch, (id: string) => {
     const p = db.listProfiles().find((x) => x.id === id)
-    if (p) win().switchProfile(p)
+    if (p) {
+      const w = win()
+      engine.cancelFor(w)
+      perms.cancelFor(w)
+      w.closeOverlay()
+      w.switchProfile(p)
+    }
     return p ?? null
   })
   handle(IPC.profileDelete, async (id: string) => {
@@ -143,7 +189,19 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
     if (profiles.length <= 1) throw new Error('Cannot delete the only profile.')
     const target = profiles.find((p) => p.id === id)
     if (!target) return db.listProfiles()
-    if (win().profile.id === id) win().switchProfile(profiles.find((p) => p.id !== id)!)
+    if (!await confirm(
+      'Delete this profile?',
+      `Delete ${target.name} and all of its local browsing data?`,
+      'This removes its tabs, history, bookmarks, memory, chats, permissions, and saved passwords.'
+    )) return profiles
+    const fallback = profiles.find((p) => p.id !== id)!
+    for (const open of allWindows()) {
+      if (open.profile.id !== id) continue
+      engine.cancelFor(open)
+      perms.cancelFor(open)
+      open.closeOverlay()
+      open.switchProfile(fallback)
+    }
     await clearBrowsingData(target.partition)
     db.deleteProfile(id)
     return db.listProfiles()
@@ -195,11 +253,15 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
 
   // The page preload announces selection changes so the chrome can offer
   // writing tools without polling every tab.
-  ipcMain.on(IPC.pageSelectionChanged, (e, payload) => {
-    const w = resolveWindow(e.sender.id)
-    if (!w || w.chrome.webContents.isDestroyed()) return
-    const tab = w.tabs.byWebContentsId(e.sender.id)
-    post(w.chrome.webContents, IPC.pageSelectionChanged, { ...payload, tabId: tab?.id ?? null })
+  onPage(IPC.pageSelectionChanged, (w, senderId, payload) => {
+    if (w.chrome.webContents.isDestroyed()) return
+    const tab = w.tabs.byWebContentsId(senderId)
+    if (!tab) return
+    post(w.chrome.webContents, IPC.pageSelectionChanged, {
+      url: tab.view.webContents.getURL(),
+      hasSelection: payload?.hasSelection === true,
+      tabId: tab.id
+    })
   })
 
   /** Writing tools: rewrite the selection, then hand the text back for review. */
@@ -225,10 +287,10 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
     const w = win()
     const tab = w.tabs.get(tabId ?? w.tabs.activeId ?? '')
     if (!tab) return false
-    const payload = JSON.stringify({ text, replace: replace !== false })
-    return tab.view.webContents.executeJavaScript(
-      `window.__kia?.insertText?.(${payload}) ?? false`, true
-    )
+    if (isExcluded(tab.state.url)) return false
+    return (await callPage<boolean>(tab.view.webContents, 'insertText', {
+      text, replace: replace !== false
+    })) ?? false
   })
 
   // ——— skills ——————————————————————————————————————————————
@@ -242,12 +304,12 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
       createdAt: skill.createdAt || now,
       updatedAt: now
     })
-    buildAppMenu(getWindow)
+    buildAppMenu(focusedWindow)
     return db.listSkills()
   })
   handle(IPC.skillDelete, (id: string) => {
     db.deleteSkill(id)
-    buildAppMenu(getWindow)
+    buildAppMenu(focusedWindow)
     return db.listSkills()
   })
   /** Preview what a skill will actually send, without sending it. */
@@ -257,9 +319,9 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
     const expanded = await expandSkill(win(), skill, input ?? '')
     return { prompt: expanded.prompt, attachments: expanded.attachments }
   })
-  handle('kia:skill-reset', (slug: string) => {
+  handle(IPC.skillReset, (slug: string) => {
     resetBuiltinSkill(slug)
-    buildAppMenu(getWindow)
+    buildAppMenu(focusedWindow)
     return db.listSkills()
   })
 
@@ -271,14 +333,27 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
   handle(IPC.memoryPin, (id: string, pinned: boolean) => {
     db.pinMemory(id, pinned); return db.listMemory(win().profile.id)
   })
-  handle(IPC.memoryClear, () => { db.clearMemory(win().profile.id); return [] })
+  handle(IPC.memoryClear, async () => {
+    if (!await confirm('Forget all memory?', 'Delete everything Voyager remembers for this profile?')) {
+      return db.listMemory(win().profile.id)
+    }
+    db.clearMemory(win().profile.id)
+    return []
+  })
 
   // ——— history —————————————————————————————————————————————
   handle(IPC.historySearch, (query: string, limit?: number) =>
     db.searchHistory(win().profile.id, query ?? '', limit ?? 60))
   handle(IPC.historyDelete, (id: number) => { db.deleteHistory(id); return true })
-  handle(IPC.historyClear, (sinceIso?: string) => { db.clearHistory(win().profile.id, sinceIso); return true })
-  handle('kia:history-forget-domain', (domain: string) => { db.forgetDomain(domain); return true })
+  handle(IPC.historyClear, async (sinceIso?: string) => {
+    if (!await confirm('Clear browsing history?', 'Delete the selected browsing history?')) return false
+    db.clearHistory(win().profile.id, sinceIso)
+    return true
+  })
+  handle(IPC.historyForgetDomain, (domain: string) => {
+    db.forgetDomain(win().profile.id, domain)
+    return true
+  })
 
   // ——— bookmarks ———————————————————————————————————————————
   handle(IPC.bookmarkAdd, (url: string, title: string, folder?: string) =>
@@ -289,9 +364,9 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
   // ——— settings ————————————————————————————————————————————
   handle(IPC.settingsGet, () => getSettings())
   /**
-   * Answers "should I play the opening theme?" — true at most once per launch.
+   * Answers "should I play the opening?" — true at most once per launch.
    * The renderer cannot decide this for itself: every window runs the same
-   * chrome, so a second window would open to its own fanfare.
+   * browser UI, so a second window would replay it.
    */
   handle(IPC.startupSound, () => {
     const { startupSound, startupStory, startupVolume } = getSettings().appearance
@@ -300,34 +375,15 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
     // The story runs with or without sound, so the window has to be told to
     // hold its tab views back either way.
     if (startupStory) win().beginSplash()
-    if (!startupSound) return { story: true, volume: 0, open: null, settle: null }
-    // The audio travels as bytes rather than a URL on purpose: in production
-    // the chrome is loaded with `loadFile`, and `fetch` from a file:// origin
-    // is blocked as cross-origin. That failure is silent, and only in the
-    // packaged build — exactly the kind that ships.
-    // Packaged, `resources/` is inside the asar at the app path. Unpackaged,
-    // `app.getAppPath()` is whatever Electron was pointed at — the project root
-    // under `electron .`, but `out/main` when handed the built script — so
-    // resolve from this file instead, which is `out/main` either way.
-    const dir = app.isPackaged
-      ? join(app.getAppPath(), 'resources', 'sounds')
-      : join(__dirname, '..', '..', 'resources', 'sounds')
-    try {
-      return {
-        story: startupStory,
-        volume: startupVolume,
-        open: readFileSync(join(dir, 'kia-open.webm')),
-        settle: readFileSync(join(dir, 'kia-settle.wav'))
-      }
-    } catch (err) {
-      console.error('[kia] startup sound assets missing:', err)
-      return startupStory ? { story: true, volume: 0, open: null, settle: null } : null
-    }
+    return { story: startupStory, sound: startupSound, volume: startupVolume }
   })
   on(IPC.splashDone, () => win().endSplash())
-  handle(IPC.settingsSet, (patch: any) => {
+  handle(IPC.settingsSet, async (patch: any) => {
     const next = setSettings(patch)
     if (patch.appearance?.theme) nativeTheme.themeSource = patch.appearance.theme
+    if (patch.privacy && (
+      Object.hasOwn(patch.privacy, 'blockAds') || Object.hasOwn(patch.privacy, 'blockTrackers')
+    )) await refreshSessionPrivacy()
     win().layout()
     return next
   })
@@ -338,20 +394,42 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
         model: getSettings().ai.model, max_tokens: 16,
         messages: [{ role: 'user', content: 'ping' }]
       })
-      return { ok: true, message: 'Key works.' }
+      return { ok: true }
     } catch (err) {
-      if (err instanceof Anthropic.AuthenticationError) return { ok: false, message: 'Key rejected.' }
-      return { ok: false, message: err instanceof Error ? err.message : String(err) }
+      if (err instanceof Anthropic.AuthenticationError) return { ok: false, error: 'Key rejected.' }
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
 
   // ——— connectors ——————————————————————————————————————————
   handle(IPC.mcpStatus, () => mcp.list())
   handle(IPC.mcpSave, async (config: McpServerConfig) => {
+    const w = win()
+    if (config?.enabled && config.transport === 'stdio') {
+      const command = [config.command, ...(config.args ?? [])].filter(Boolean).join(' ').slice(0, 1_000)
+      const answer = await dialog.showMessageBox(w.window, {
+        type: 'warning',
+        title: 'Run a local connector?',
+        message: `${config.name || 'This connector'} will start a program with your operating-system account permissions.`,
+        detail: `${command}\n\nOnly continue if you trust the program and where it came from. Tool approvals do not sandbox the connector process.`,
+        buttons: ['Cancel', 'Run connector'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true
+      })
+      if (answer.response !== 1) return mcp.list()
+    }
     await mcp.save({ ...config, id: config.id || randomUUID() })
     return mcp.list()
   })
-  handle(IPC.mcpDelete, async (id: string) => { await mcp.remove(id); return mcp.list() })
+  handle(IPC.mcpDelete, async (id: string) => {
+    const name = mcp.list().find((server) => server.id === id)?.name ?? 'this connector'
+    if (!await confirm('Remove connector?', `Remove ${name} and its stored configuration?`)) {
+      return mcp.list()
+    }
+    await mcp.remove(id)
+    return mcp.list()
+  })
   handle(IPC.mcpReconnect, async (id: string) => { await mcp.connect(id); return mcp.list() })
 
   // ——— brief ———————————————————————————————————————————————
@@ -364,7 +442,7 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
     return { title: spec.title, slides: spec.slides.length, path: pptxPath }
   })
   handle(IPC.reportGenerate, (instruction: string) => generateReport(win(), instruction))
-  handle('kia:reveal-file', (path: string) => { revealFile(path); return true })
+  handle(IPC.revealFile, (path: string) => { revealFile(path); return true })
 
   // ——— sync ————————————————————————————————————————————————
   handle(IPC.syncChooseFolder, async () => {
@@ -382,9 +460,9 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
     let path = explicitPath
     if (!path) {
       const res = await dialog.showOpenDialog(win().window, {
-        title: 'Open an Open Search sync bundle',
+        title: 'Open an Voyager sync bundle',
         properties: ['openFile'],
-        filters: [{ name: 'Open Search sync', extensions: ['enc'] }],
+        filters: [{ name: 'Voyager sync', extensions: ['enc'] }],
         defaultPath: getSettings().sync.folder ?? undefined
       })
       if (res.canceled) return null
@@ -392,7 +470,7 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
     }
     return importSync(win().profile.id, path, passphrase)
   })
-  handle('kia:sync-filename', () => SYNC_FILENAME)
+  handle(IPC.syncFilename, () => SYNC_FILENAME)
 
   // ——— misc ————————————————————————————————————————————————
   on(IPC.openExternal, (url: string) => openExternal(url))
@@ -400,31 +478,34 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
     text ? win().findInPage(text, forward !== false) : win().stopFind()
   })
   handle(IPC.downloadsList, () => listDownloads())
-  handle('kia:downloads-clear', () => { clearDownloads(); return [] })
+  handle(IPC.downloadsClear, () => { clearDownloads(); return [] })
   watchDownloads(() => {
-    const w = getWindow()
-    if (w && !w.chrome.webContents.isDestroyed()) {
-      post(w.chrome.webContents, 'kia:downloads-changed', listDownloads())
+    for (const w of allWindows()) if (!w.chrome.webContents.isDestroyed()) {
+      post(w.chrome.webContents, 'voyager:downloads-changed', listDownloads())
     }
   })
   /** Overlay → chrome: open a panel by name. */
-  on('kia:open-panel', (name: string) => {
+  on('voyager:open-panel', (name: string) => {
     const w = getWindow()
     if (!w || w.chrome.webContents.isDestroyed()) return
-    if (!/^[a-z-]+$/.test(name)) return
+    const panels = new Set([
+      'settings', 'privacy', 'history', 'bookmarks', 'memory', 'skills',
+      'connectors', 'brief', 'deck-composer', 'shortcuts', 'find', 'tidy'
+    ])
+    if (!panels.has(name)) return
     w.closeOverlay()
-    post(w.chrome.webContents, `kia:open-${name}`)
+    post(w.chrome.webContents, `voyager:open-${name}`)
   })
-  handle('kia:clipboard-write', (text: string) => { clipboard.writeText(text); return true })
-  handle('kia:excluded', (url: string) => isExcluded(url))
-  handle('kia:window-state', () => win().state())
+  handle(IPC.clipboardWrite, (text: string) => { clipboard.writeText(text); return true })
+  handle(IPC.excluded, (url: string) => isExcluded(url))
+  handle(IPC.windowState, () => win().state())
 
   // ——— permissions —————————————————————————————————————————
   on(IPC.permissionRespond, (id: string, allowed: boolean, remember: boolean) => {
-    perms.respond(id, !!allowed, !!remember)
+    perms.respond(win(), id, !!allowed, !!remember)
   })
   on(IPC.screenPickRespond, (sourceId: string | null) => {
-    perms.respondScreenPick(sourceId ?? null)
+    perms.respondScreenPick(win(), sourceId ?? null)
   })
   handle(IPC.permissionList, () => db.listPermissions(win().profile.id))
   handle(IPC.permissionRevoke, (origin: string, permission: string) => {
@@ -432,14 +513,37 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
     return db.listPermissions(win().profile.id)
   })
   handle(IPC.permissionClear, () => {
-    db.clearPermissions(win().profile.id)
-    return []
+    return confirm('Forget all site permissions?', 'Make every site ask again?').then((allowed) => {
+      if (!allowed) return db.listPermissions(win().profile.id)
+      db.clearPermissions(win().profile.id)
+      return []
+    })
   })
 
   // ——— passwords ———————————————————————————————————————————
   handle(IPC.loginList, (url?: string) => passwords.list(win().profile.id, url))
-  handle(IPC.loginDelete, (id: string) => passwords.remove(win().profile.id, id))
-  handle(IPC.loginReveal, (id: string) => passwords.secretFor(win().profile.id, id))
+  handle(IPC.loginDelete, async (id: string) => {
+    if (!await confirm('Delete saved password?', 'Remove this saved login from Voyager?')) {
+      return passwords.list(win().profile.id)
+    }
+    return passwords.remove(win().profile.id, id)
+  })
+  handle(IPC.loginReveal, async (id: string) => {
+    const w = win()
+    const login = passwords.list(w.profile.id).find((item) => item.id === id)
+    if (!login) return null
+    const answer = await dialog.showMessageBox(w.window, {
+      type: 'warning',
+      title: 'Show saved password?',
+      message: `Reveal the password for ${login.username}?`,
+      detail: login.origin,
+      buttons: ['Cancel', 'Show password'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true
+    })
+    return answer.response === 1 ? passwords.secretFor(w.profile.id, id) : null
+  })
 
   /**
    * Fills the *active tab*, not whoever asked. The password goes straight from
@@ -448,12 +552,14 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
    */
   handle(IPC.loginFill, (id: string) => {
     const w = win()
-    const secret = passwords.secretFor(w.profile.id, id)
     const login = passwords.list(w.profile.id).find((l) => l.id === id)
     const wc = w.tabs.active()?.view.webContents
-    if (!secret || !login || !wc) return false
+    if (!login || !wc) return false
+    if (!passwords.isSecureLoginUrl(wc.getURL())) return false
     if (perms.originOf(wc.getURL()) !== login.origin) return false
-    post(wc, 'kia:login-fill', { username: login.username, password: secret })
+    const secret = passwords.secretFor(w.profile.id, id)
+    if (!secret) return false
+    post(wc, 'voyager:login-fill', { username: login.username, password: secret })
     return true
   })
 
@@ -465,24 +571,32 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
    * from the click and beforeunload nets, so the dedupe here is what keeps one
    * sign-in from producing three sheets.
    */
-  on('kia:login-submitted', (cred: { url: string; username: string; password: string }) => {
-    const w = getWindow()
-    if (!w || !cred?.username || !cred?.password) return
+  onPage('voyager:login-submitted', (w, senderId, cred: {
+    url: string; username: string; password: string
+  }) => {
+    const tab = w.tabs.byWebContentsId(senderId)
+    if (!tab || !cred?.username || !cred?.password) return
+    const url = tab.view.webContents.getURL()
+    if (perms.originOf(url) !== perms.originOf(cred.url)) return
+    const username = String(cred.username).slice(0, 1_000)
+    const password = String(cred.password).slice(0, 10_000)
+    if (!username || !password) return
     if (!passwords.canSave()) return
-    if (isExcluded(cred.url)) return
-    if (passwords.isKnown(w.profile.id, cred.url, cred.username, cred.password)) return
-    const origin = perms.originOf(cred.url)
+    if (!passwords.isSecureLoginUrl(url)) return
+    if (isExcluded(url)) return
+    if (passwords.isKnown(w.profile.id, url, username, password)) return
+    const origin = perms.originOf(url)
     if (!origin) return
-    const existing = passwords.list(w.profile.id, cred.url).some((l) => l.username === cred.username)
-    pendingLogin = cred
-    w.showOverlay({ kind: 'savePassword', origin, username: cred.username, existing })
+    const existing = passwords.list(w.profile.id, url).some((l) => l.username === username)
+    pendingLogins.set(w, { url, username, password })
+    w.showOverlay({ kind: 'savePassword', origin, username, existing })
   })
 
   /** Answering the save sheet. The plaintext never leaves main. */
-  on('kia:login-save-respond', (accept: boolean) => {
+  on('voyager:login-save-respond', (accept: boolean) => {
     const w = getWindow()
-    const cred = pendingLogin
-    pendingLogin = null
+    const cred = w ? pendingLogins.get(w) ?? null : null
+    if (w) pendingLogins.delete(w)
     w?.closeOverlay()
     if (!accept || !cred || !w) return
     passwords.save(w.profile.id, cred.url, cred.username, cred.password)
@@ -497,6 +611,21 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
       properties: ['openDirectory']
     })
     if (res.canceled) return extensions.status()
+    const manifest = extensions.readManifest(res.filePaths[0])
+    const access = manifest.permissions.length
+      ? manifest.permissions.join('\n').slice(0, 2_000)
+      : 'No permissions or page match patterns are declared.'
+    const answer = await dialog.showMessageBox(win().window, {
+      type: 'warning',
+      title: 'Load an unpacked extension?',
+      message: `${manifest.name} can run code inside Voyager.`,
+      detail: `Only load extensions whose source you trust. Declared access:\n\n${access}`,
+      buttons: ['Cancel', 'Load extension'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true
+    })
+    if (answer.response !== 1) return extensions.status()
     return extensions.add(res.filePaths[0])
   })
   handle(IPC.extensionRemove, (path: string) => extensions.remove(path))
@@ -523,7 +652,7 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
     })
     if (res.canceled || !res.filePath) return null
     const data = await tab.view.webContents.printToPDF({
-      printBackground: true, pageSize: 'Letter', margins: { marginType: 'default' }
+      printBackground: true, pageSize: 'Letter'
     })
     writeFileSync(res.filePath, data)
     return res.filePath

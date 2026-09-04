@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  looksLikeUrl, looksLikeQuestion, resolveInput, prettyHost, calendarEvent
+  isAllowedPageUrl, looksLikeUrl, looksLikeQuestion, resolveInput, prettyHost, calendarEvent
 } from '../src/main/browser/urls'
 
 describe('looksLikeUrl', () => {
@@ -58,7 +58,10 @@ describe('resolveInput', () => {
 
   it('refuses to navigate to script-bearing schemes', () => {
     // The URL bar must never be a javascript: execution path.
-    for (const s of ['javascript:alert(1)', 'data:text/html,<script>x</script>', 'blob:abc']) {
+    for (const s of [
+      'javascript:alert(1)', 'data:text/html,<script>x</script>', 'blob:abc',
+      'file:///C:/Users/alice/secrets.txt', 'file:///Users/alice/secrets.txt'
+    ]) {
       const out = resolveInput(s, 'google')
       expect(out.startsWith('https://www.google.com/search?q='), s).toBe(true)
     }
@@ -66,6 +69,20 @@ describe('resolveInput', () => {
 
   it('is blank-safe', () => {
     expect(resolveInput('   ', 'kagi')).toBe('about:blank')
+  })
+})
+
+describe('isAllowedPageUrl', () => {
+  it('allows only web, blank, and known internal destinations', () => {
+    for (const url of [
+      'https://example.com/path', 'http://localhost:3000', 'about:blank',
+      'voyager://new-tab', 'voyager://error?url=https%3A%2F%2Fexample.com'
+    ]) expect(isAllowedPageUrl(url), url).toBe(true)
+
+    for (const url of [
+      'file:///C:/Windows/System32/drivers/etc/hosts', 'javascript:alert(1)',
+      'mailto:test@example.com', 'voyager://unknown'
+    ]) expect(isAllowedPageUrl(url), url).toBe(false)
   })
 })
 

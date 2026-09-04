@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const settings = vi.hoisted(() => ({ set: vi.fn() }))
+const connectors = vi.hoisted(() => ({ save: vi.fn() }))
 vi.mock('../src/main/store/settings', () => ({
   getSettings: () => ({ ai: { apiKey: 'sk-local-machine-key' }, sync: { folder: '/local' } }),
   setSettings: settings.set,
@@ -10,11 +11,11 @@ vi.mock('../src/main/store/db', () => ({
   listSkills: () => [], listMemory: () => [], listBookmarks: () => [], listProfiles: () => [],
   upsertSkill: vi.fn(), addMemory: vi.fn(), addBookmark: vi.fn()
 }))
-vi.mock('../src/main/agent/mcp', () => ({ mcp: { configs: () => [], save: vi.fn() } }))
+vi.mock('../src/main/agent/mcp', () => ({ mcp: { configs: () => [], save: connectors.save } }))
 
-const files = vi.hoisted(() => ({ read: vi.fn() }))
+const files = vi.hoisted(() => ({ read: vi.fn(), stat: vi.fn(() => ({ size: 1_024 })) }))
 vi.mock('node:fs/promises', () => ({
-  readFile: files.read, writeFile: vi.fn(), mkdir: vi.fn()
+  readFile: files.read, writeFile: vi.fn(), mkdir: vi.fn(), stat: files.stat
 }))
 
 const { encryptBundle, decryptBundle, importSync } = await import('../src/main/store/sync')
@@ -45,13 +46,13 @@ describe('bundle crypto', () => {
 
   it('rejects a file that is not a bundle', () => {
     expect(() => decryptBundle(Buffer.from('hello world padding'), 'p'))
-      .toThrow(/not an Open Search sync bundle/)
+      .toThrow(/not a Voyager sync bundle/)
   })
 
   it('rejects a file too short to hold the header', () => {
     // timingSafeEqual throws on a length mismatch, so this must be caught first.
-    expect(() => decryptBundle(Buffer.from('KIA'), 'p'))
-      .toThrow(/not an Open Search sync bundle/)
+    expect(() => decryptBundle(Buffer.from('BAD'), 'p'))
+      .toThrow(/not a Voyager sync bundle/)
   })
 
   it('uses a fresh salt and iv, so two exports never match', () => {
@@ -60,11 +61,11 @@ describe('bundle crypto', () => {
 })
 
 describe('importSync', () => {
-  beforeEach(() => settings.set.mockClear())
+  beforeEach(() => { settings.set.mockClear(); connectors.save.mockClear() })
 
   it('never lets a bundle overwrite the local key or sync target', async () => {
     files.read.mockResolvedValue(encryptBundle(bundle, 'p'))
-    await importSync('profile-1', '/somewhere/kia-sync.enc', 'p')
+    await importSync('profile-1', '/somewhere/voyager-sync.enc', 'p')
 
     expect(settings.set).toHaveBeenCalledTimes(1)
     const applied = settings.set.mock.calls[0][0]
@@ -76,5 +77,17 @@ describe('importSync', () => {
     files.read.mockResolvedValue(encryptBundle(bundle, 'p'))
     await expect(importSync('profile-1', '/x.enc', 'nope')).rejects.toThrow()
     expect(settings.set).not.toHaveBeenCalled()
+  })
+
+  it('restores local connectors disabled so importing data cannot launch a command', async () => {
+    files.read.mockResolvedValue(encryptBundle({
+      ...bundle,
+      mcpServers: [{
+        id: 'local', name: 'Local tool', enabled: true,
+        transport: 'stdio', command: 'trusted-after-review', args: [], env: {}
+      }]
+    }, 'p'))
+    await importSync('profile-1', '/somewhere/voyager-sync.enc', 'p')
+    expect(connectors.save).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }))
   })
 })

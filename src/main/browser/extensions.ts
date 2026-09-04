@@ -1,5 +1,5 @@
 import { session, type Extension } from 'electron'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { kvGet, kvSet } from '../store/db'
 import type { ExtensionStatus } from '@shared/types'
@@ -23,17 +23,39 @@ function save(list: ExtensionRecord[]): void {
  * Chrome extensions ship a `manifest.json` at the directory root; anything else
  * is not an extension, however much it looks like one.
  */
-export function readManifest(dir: string): { name: string; version: string; manifestVersion: number } {
+export function readManifest(dir: string): {
+  name: string
+  version: string
+  manifestVersion: number
+  permissions: string[]
+} {
   const file = join(dir, 'manifest.json')
   if (!existsSync(file)) throw new Error('No manifest.json in that folder.')
+  if (statSync(file).size > 1_000_000) throw new Error('That manifest is unexpectedly large.')
   const m = JSON.parse(readFileSync(file, 'utf8')) as {
-    name?: string; version?: string; manifest_version?: number
+    name?: string
+    version?: string
+    manifest_version?: number
+    permissions?: unknown
+    host_permissions?: unknown
+    content_scripts?: { matches?: unknown }[]
   }
-  if (!m.name) throw new Error('That manifest has no name.')
+  if (typeof m.name !== 'string' || !m.name.trim()) throw new Error('That manifest has no name.')
+  const strings = (value: unknown): string[] => Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string').map((item) => item.slice(0, 200))
+    : []
+  const permissions = [
+    ...strings(m.permissions),
+    ...strings(m.host_permissions),
+    ...(Array.isArray(m.content_scripts)
+      ? m.content_scripts.flatMap((script) => strings(script?.matches))
+      : [])
+  ]
   return {
-    name: m.name,
-    version: m.version ?? '0',
-    manifestVersion: m.manifest_version ?? 2
+    name: m.name.trim().slice(0, 200),
+    version: typeof m.version === 'string' ? m.version.slice(0, 50) : '0',
+    manifestVersion: m.manifest_version === 3 ? 3 : 2,
+    permissions: [...new Set(permissions)].slice(0, 100)
   }
 }
 
@@ -54,7 +76,7 @@ export async function loadInto(partition: string): Promise<void> {
       const ext = await ses.extensions.loadExtension(r.path, { allowFileAccess: false })
       map.set(r.path, ext)
     } catch (err) {
-      console.error('[kia] extension failed to load:', r.path, err)
+      console.error('[voyager] extension failed to load:', r.path, err)
     }
   }
 }
@@ -65,7 +87,7 @@ function partitions(): string[] {
 }
 
 export async function add(dir: string): Promise<ExtensionStatus[]> {
-  const meta = readManifest(dir)
+  const { permissions: _permissions, ...meta } = readManifest(dir)
   const list = records().filter((r) => r.path !== dir)
   list.push({ ...meta, path: dir, enabled: true, addedAt: new Date().toISOString() })
   save(list)

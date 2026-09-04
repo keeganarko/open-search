@@ -10,7 +10,7 @@ const pretty = (origin: string): string => origin.replace(/^https?:\/\//, '')
 export default function SavePassword(
   { origin, username, existing }: { origin: string; username: string; existing: boolean }
 ): JSX.Element {
-  const answer = (accept: boolean): void => window.kia.logins.respondSave(accept)
+  const answer = (accept: boolean): void => window.voyager.logins.respondSave(accept)
 
   useEffect(() => {
     const h = (e: KeyboardEvent): void => {

@@ -1,6 +1,6 @@
-import type { KiaWindow } from '../browser/window'
+import type { VoyagerWindow } from '../browser/window'
 import type { Skill, ContextRef } from '@shared/types'
-import { readTab, readSelection, renderPage } from './context'
+import { escapeContextText, readTab, readSelection, renderPage } from './context'
 import * as db from '../store/db'
 
 export interface ExpandedSkill {
@@ -13,7 +13,7 @@ export interface ExpandedSkill {
  * replaced with empty strings rather than left as literal braces.
  */
 export async function expandSkill(
-  win: KiaWindow, skill: Skill, userInput: string
+  win: VoyagerWindow, skill: Skill, userInput: string
 ): Promise<ExpandedSkill> {
   const active = win.tabs.active()
   const attachments: ContextRef[] = []
@@ -54,11 +54,13 @@ export async function expandSkill(
   }
 
   const prompt = skill.prompt
-    .replaceAll('{{selection}}', selection)
+    .replaceAll('{{selection}}', selection
+      ? `<selection>\n${escapeContextText(selection)}\n</selection>`
+      : '')
     .replaceAll('{{page}}', page)
     .replaceAll('{{tabs}}', tabs)
     .replaceAll('{{input}}', userInput)
-    .replaceAll('{{url}}', url)
+    .replaceAll('{{url}}', escapeContextText(url))
     .trim()
 
   return { prompt, attachments }

@@ -1,12 +1,13 @@
 import { randomBytes, scryptSync, createCipheriv, createDecipheriv, timingSafeEqual } from 'node:crypto'
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, stat } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import * as db from './db'
 import { getSettings, setSettings } from './settings'
 import { mcp } from '../agent/mcp'
 
-const MAGIC = 'KIA-SYNC-1'
-const FILENAME = 'kia-sync.enc'
+const MAGIC = 'VOYAGER-SYNC-1'
+const FILENAME = 'voyager-sync.enc'
+const MAX_BUNDLE_BYTES = 25 * 1024 * 1024
 
 interface Bundle {
   version: 1
@@ -44,7 +45,10 @@ export function decryptBundle(buf: Buffer, passphrase: string): Bundle {
   // file should read as "not a bundle" rather than as a crash.
   const header = buf.subarray(0, MAGIC.length)
   if (header.length !== MAGIC.length || !timingSafeEqual(header, Buffer.from(MAGIC, 'utf8'))) {
-    throw new Error('That file is not an Open Search sync bundle.')
+    throw new Error('That file is not a Voyager sync bundle.')
+  }
+  if (buf.length < MAGIC.length + 16 + 12 + 16 + 2) {
+    throw new Error('That file is not a complete Voyager sync bundle.')
   }
   let o = MAGIC.length
   const salt = buf.subarray(o, o += 16)
@@ -55,7 +59,19 @@ export function decryptBundle(buf: Buffer, passphrase: string): Bundle {
   decipher.setAuthTag(tag)
   try {
     const plain = Buffer.concat([decipher.update(body), decipher.final()])
-    return JSON.parse(plain.toString('utf8')) as Bundle
+    const parsed = JSON.parse(plain.toString('utf8')) as Bundle
+    if (!parsed || parsed.version !== 1 || typeof parsed.exportedAt !== 'string') {
+      throw new Error('Unsupported bundle format.')
+    }
+    for (const [key, max] of [
+      ['skills', 1_000], ['memory', 10_000], ['bookmarks', 10_000],
+      ['mcpServers', 100], ['profiles', 100]
+    ] as const) {
+      if (!Array.isArray(parsed[key]) || parsed[key].length > max) {
+        throw new Error(`Invalid or oversized ${key} list.`)
+      }
+    }
+    return parsed
   } catch {
     throw new Error('Wrong passphrase, or the file has been modified.')
   }
@@ -93,6 +109,8 @@ export interface ImportSummary {
 export async function importSync(
   profileId: string, path: string, passphrase: string
 ): Promise<ImportSummary> {
+  const info = await stat(path)
+  if (info.size > MAX_BUNDLE_BYTES) throw new Error('That sync bundle is too large to import safely.')
   const buf = await readFile(path)
   const bundle = decryptBundle(buf, passphrase)
   const summary: ImportSummary = { skills: 0, memory: 0, bookmarks: 0, connectors: 0, settings: false }
@@ -119,7 +137,9 @@ export async function importSync(
     summary.bookmarks++
   }
   for (const c of (bundle.mcpServers ?? []) as any[]) {
-    await mcp.save(c)
+    // Importing data must never launch a program. The user can inspect and
+    // explicitly enable a restored local connector afterward.
+    await mcp.save({ ...c, enabled: false })
     summary.connectors++
   }
   return summary

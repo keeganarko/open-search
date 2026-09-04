@@ -29,31 +29,30 @@ export default function App(): JSX.Element {
   const [panel, setPanel] = useState<PanelName | null>(null)
   const [finding, setFinding] = useState(false)
   const [crashed, setCrashed] = useState<Set<string>>(new Set())
-  const closed = useRef<string[]>([])
   const [splash, setSplash] = useState(false)
 
   useTheme(settings?.appearance.theme)
   // Drives the rail's top inset and whether a title strip is drawn at all:
   // macOS insets its traffic lights into the rail, Windows and Linux draw
   // caption buttons top-right and need a strip of their own.
-  useEffect(() => { document.documentElement.dataset.platform = window.kia.platform }, [])
+  useEffect(() => { document.documentElement.dataset.platform = window.voyager.platform }, [])
   useAccent(settings?.appearance.accent)
 
   // Main decides whether this window is the one that gets the opening, so a
   // second window opens in silence. A failure here is not worth a toast.
   useEffect(() => {
-    void window.kia.opening()
+    void window.voyager.opening()
       .then((o) => {
         if (!o) return
         if (o.story) setSplash(true)
-        if (o.open && o.settle) void playStartupSound(o.volume, o.open, o.settle)
+        if (o.sound) void playStartupSound(o.volume)
       })
       .catch((e) => console.warn('opening:', e))
   }, [])
 
   const endSplash = useCallback(() => {
     setSplash(false)
-    window.kia.splashDone()
+    window.voyager.splashDone()
   }, [])
 
   // Menu → panel routing. One subscription per channel, all unsubscribed together.
@@ -62,46 +61,35 @@ export default function App(): JSX.Element {
       'settings', 'privacy', 'skills', 'memory', 'connectors', 'history',
       'bookmarks', 'brief', 'deck-composer', 'shortcuts', 'tidy', 'downloads'
     ]
-    const offs = names.map((n) => window.kia.onOpen(n as never, () => setPanel(n)))
-    offs.push(window.kia.onOpen('find', () => setFinding(true)))
-    offs.push(window.kia.onAutoOrganize(async () => {
-      const r = await window.kia.groups.autoOrganize()
+    const offs = names.map((n) => window.voyager.onOpen(n as never, () => setPanel(n)))
+    offs.push(window.voyager.onOpen('find', () => setFinding(true)))
+    offs.push(window.voyager.onAutoOrganize(async () => {
+      const r = await window.voyager.groups.autoOrganize()
       toast(r.message, r.grouped ? 'info' : 'error')
     }))
-    offs.push(window.kia.onReopenClosedTab(() => {
-      const url = closed.current.pop()
-      if (url) window.kia.tabs.create({ url })
-      else toast('Nothing to reopen.')
-    }))
-    offs.push(window.kia.onTabCrashed(({ tabId }) => {
+    offs.push(window.voyager.onTabCrashed(({ tabId }) => {
       setCrashed((c) => new Set(c).add(tabId))
       toast('That tab stopped responding. Reload it to try again.', 'error')
     }))
-    offs.push(window.kia.onLoadFailed(({ description }) => {
+    offs.push(window.voyager.onLoadFailed(({ description }) => {
       toast(`Could not load the page — ${description}`, 'error')
     }))
-    offs.push(window.kia.onFocus('omnibox', () => openOmnibox()))
-    offs.push(window.kia.brief.onReady(() => toast('Your morning brief is ready.')))
+    offs.push(window.voyager.onFocus('omnibox', () => openOmnibox()))
+    offs.push(window.voyager.brief.onReady(() => toast('Your morning brief is ready.')))
     return () => offs.forEach((f) => f())
   }, [toast])
 
-  // Remember closed tabs so ⌘⇧T has something to reopen.
-  const prevTabs = useRef<Map<string, string>>(new Map())
+  // Keep crash badges scoped to tabs that are still live.
   useEffect(() => {
     if (!state) return
     const now = new Map(state.tabs.map((t) => [t.id, t.url]))
-    for (const [id, url] of prevTabs.current) {
-      if (!now.has(id) && url && !url.startsWith('about:')) closed.current.push(url)
-    }
-    closed.current = closed.current.slice(-25)
-    prevTabs.current = now
     setCrashed((c) => new Set([...c].filter((id) => now.has(id))))
   }, [state])
 
   const openOmnibox = useCallback(() => {
     const el = document.querySelector('.omnibox')
     const r = el?.getBoundingClientRect()
-    window.kia.overlay.open({
+    window.voyager.overlay.open({
       kind: 'omnibox',
       anchor: r
         ? { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }
@@ -119,8 +107,8 @@ export default function App(): JSX.Element {
   }
   useEffect(() => {
     const move = (e: MouseEvent): void => {
-      if (dragging.current === 'sidebar') window.kia.layout.sidebarWidth(window.innerWidth - e.clientX)
-      else if (dragging.current === 'rail') window.kia.layout.railWidth(e.clientX)
+      if (dragging.current === 'sidebar') window.voyager.layout.sidebarWidth(window.innerWidth - e.clientX)
+      else if (dragging.current === 'rail') window.voyager.layout.railWidth(e.clientX)
     }
     const up = (): void => {
       if (dragging.current) { dragging.current = null; document.body.style.cursor = '' }
@@ -138,7 +126,7 @@ export default function App(): JSX.Element {
   if (!state || !settings) {
     return (
       <div className="shell">
-        <div className="emptystate"><h1>Open Search</h1></div>
+        <div className="emptystate"><h1>Voyager</h1></div>
         {splash && <Splash onDone={endSplash} />}
       </div>
     )
@@ -147,7 +135,8 @@ export default function App(): JSX.Element {
   const active = state.tabs.find((t) => t.id === state.activeTabId)
   const close = (): void => setPanel(null)
 
-  const mac = window.kia.platform === 'darwin'
+  const mac = window.voyager.platform === 'darwin'
+  const mod = mac ? '⌘' : 'Ctrl+'
 
   return (
     <div className="shell">
@@ -170,11 +159,11 @@ export default function App(): JSX.Element {
         <div className="content">
           {!active && (
             <div className="emptystate">
-              <h1>Open Search</h1>
+              <h1>Voyager</h1>
               <div className="hint">
-                <kbd>⌘T</kbd> new tab · <kbd>⌘L</kbd> address bar · <kbd>⌘K</kbd> ask Open Search
+                <kbd>{mod}T</kbd> new tab · <kbd>{mod}L</kbd> address bar · <kbd>{mod}K</kbd> ask Voyager
               </div>
-              <button className="btn primary" onClick={() => window.kia.tabs.create({})}>
+              <button className="btn primary" onClick={() => window.voyager.tabs.create({})}>
                 New tab
               </button>
             </div>
@@ -206,6 +195,7 @@ export default function App(): JSX.Element {
           <>
             <div className="sidebar-handle" onMouseDown={grab('sidebar')} />
             <Sidebar
+              profileId={state.profileId}
               width={state.sidebarWidth}
               onPanel={(p) => setPanel(p as PanelName | null)}
               toast={toast}

@@ -1,8 +1,8 @@
-import type { KiaApi } from './chrome'
+import type { VoyagerApi } from './chrome'
 
 declare global {
   interface Window {
-    kia: KiaApi
+    voyager: VoyagerApi
   }
 }
 

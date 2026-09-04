@@ -8,9 +8,9 @@ const GLYPH: Record<ToolStep['status'], string> = {
 
 const CLASS_LABEL: Record<ActionClass, string> = {
   read: 'reads',
-  local_reversible: 'changes something in Open Search — undoable',
+  local_reversible: 'changes something in Voyager — undoable',
   external_draft: 'drafts, without sending',
-  external_write: 'writes to a service outside Open Search',
+  external_write: 'writes to a service outside Voyager',
   sensitive: 'is sensitive — money, deletion, or credentials'
 }
 
@@ -106,7 +106,7 @@ export default function Message({ msg, streaming, onApprove }: Props): JSX.Eleme
         <div className="citations">
           {msg.citations.map((c, i) => (
             <button className="citation" key={`${c.url}-${i}`}
-              onClick={() => window.kia.tabs.create({ url: c.url, background: true })}
+              onClick={() => window.voyager.tabs.create({ url: c.url, background: true })}
               title={c.url}>
               <span className="n">{i + 1}</span>
               <span className="t">{c.title || c.url}</span>

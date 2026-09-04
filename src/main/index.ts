@@ -1,9 +1,12 @@
-import { app, BrowserWindow, dialog, nativeTheme, session } from 'electron'
-import { join, dirname } from 'node:path'
-import { writeFileSync, existsSync, renameSync, readdirSync, rmSync } from 'node:fs'
+import { app, BrowserWindow, dialog, nativeTheme, net, protocol } from 'electron'
+import { join, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { KiaWindow, post } from './browser/window'
-import { showPageContextMenu, buildAppMenu, setAboutPanel, setNewWindowHandler } from './menu'
+import { VoyagerWindow, post } from './browser/window'
+import {
+  showPageContextMenu, showUiContextMenu, buildAppMenu, setAboutPanel, setNewWindowHandler
+} from './menu'
 import { registerIpc } from './ipc'
 import {
   openDb, closeDb, ensureDefaultProfile, pruneHistory, listProfiles,
@@ -16,65 +19,63 @@ import { setWindowResolver, cancelFor } from './browser/permissions'
 import { loadInto } from './browser/extensions'
 import { mcp } from './agent/mcp'
 import { generateBrief, existingBrief } from './agent/brief'
+import { engine } from './agent/engine'
 
-const windows = new Set<KiaWindow>()
-let focused: KiaWindow | null = null
+const windows = new Set<VoyagerWindow>()
+let focused: VoyagerWindow | null = null
 let quitting = false
 
-const DEV_URL = process.env.ELECTRON_RENDERER_URL ?? null
-const INDEX_HTML = join(__dirname, '../renderer/index.html')
-const OVERLAY_HTML = join(__dirname, '../renderer/overlay.html')
-
-app.setName('Open Search')
+const UI_ROOT = resolve(__dirname, '../renderer')
 
 /**
- * Chromium's single-instance lock is three symlinks naming a host, a pid and a
- * socket under /var/folders. Carried into the new directory they describe a
- * process that is long gone, and the app quits on launch without a word —
- * `requestSingleInstanceLock()` simply returns false. They are not user data.
+ * A development-server URL is effectively code execution in the privileged UI.
+ * Never honour it in a packaged build, and never accept a non-loopback host.
  */
-function dropSingleton(dir: string): void {
-  for (const name of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
-    rmSync(join(dir, name), { force: true })
-  }
-}
-
-/**
- * `app.setName` moves `userData`, which would orphan the database, the cookies
- * and every logged-in session from an install made under the old name.
- *
- * Two traps here. This runs at module load because by `whenReady` Chromium has
- * already written into the new directory. And the path is built from `appData`
- * rather than read from `getPath('userData')`, because *asking* for userData is
- * what creates it — the check would pass through a directory it made itself.
- */
-function migrateUserData(): void {
-  const base = app.getPath('appData')
-  const target = join(base, 'Open Search')
-  const legacy = join(base, 'Kia')
-  if (!existsSync(join(legacy, 'kia.db'))) return
-  if (existsSync(join(target, 'kia.db'))) return
+function developmentRendererUrl(raw: string | undefined): string | null {
+  if (app.isPackaged || !raw) return null
   try {
-    if (!existsSync(target)) {
-      renameSync(legacy, target)
-      dropSingleton(target)
-      return
-    }
-    // The directory exists but holds nothing of ours, so the old copy wins.
-    for (const name of readdirSync(legacy)) {
-      const dest = join(target, name)
-      rmSync(dest, { recursive: true, force: true })
-      renameSync(join(legacy, name), dest)
-    }
-    rmSync(legacy, { recursive: true, force: true })
-    dropSingleton(target)
-  } catch (err) {
-    // A failed move is not fatal — the app starts with an empty profile rather
-    // than not starting at all.
-    console.error('[kia] userData migration failed:', err)
+    const url = new URL(raw)
+    const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+    return loopback && ['http:', 'https:'].includes(url.protocol) ? url.toString() : null
+  } catch {
+    return null
   }
 }
-migrateUserData()
+
+const DEV_URL = developmentRendererUrl(process.env.ELECTRON_RENDERER_URL)
+
+app.setName('Voyager')
+if (process.platform === 'win32') app.setAppUserModelId('com.keeganarko.voyager')
+
+// Custom schemes must be registered before app readiness. Each profile session
+// installs the handler itself in `sessionFor`.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'voyager', privileges: { standard: true, secure: true, corsEnabled: true } },
+  { scheme: 'voyager-app', privileges: { standard: true, secure: true, corsEnabled: true } }
+])
+
+// Sandboxing is the default policy for every renderer, including the privileged
+// Voyager UI. Individual webPreferences still document that boundary.
+app.enableSandbox()
+
+function registerUiProtocol(): void {
+  protocol.handle('voyager-app', (request) => {
+    const url = new URL(request.url)
+    if (url.hostname !== 'ui') return new Response('Not found', { status: 404 })
+
+    let relative: string
+    try { relative = decodeURIComponent(url.pathname).replace(/^\/+/, '') }
+    catch { return new Response('Bad request', { status: 400 }) }
+
+    const allowed = /^(?:index|overlay)\.html$/.test(relative)
+      || /^assets\/[A-Za-z0-9_.-]+\.(?:js|css)$/.test(relative)
+    const file = resolve(UI_ROOT, relative)
+    if (!allowed || (file !== UI_ROOT && !file.startsWith(`${UI_ROOT}${sep}`))) {
+      return new Response('Not found', { status: 404 })
+    }
+    return net.fetch(pathToFileURL(file).toString())
+  })
+}
 
 // Chromium's own tab-freezing fights our WebContentsView show/hide cycle.
 app.commandLine.appendSwitch('disable-features', 'IntensiveWakeUpThrottling')
@@ -112,7 +113,7 @@ async function maybeGenerateBrief(): Promise<void> {
   try {
     const brief = await generateBrief(win)
     if (!win.chrome.webContents.isDestroyed()) {
-      post(win.chrome.webContents, 'kia:brief-ready', brief)
+      post(win.chrome.webContents, 'voyager:brief-ready', brief)
     }
   } catch (err) {
     console.error('brief', err)
@@ -121,29 +122,40 @@ async function maybeGenerateBrief(): Promise<void> {
   }
 }
 
-/**
- * Which window a webContents belongs to — its chrome, its overlay, or one of its
- * tabs. A menu click has no sender, so -1 falls through to the focused window.
- */
-function windowForSender(senderId: number): KiaWindow | null {
-  if (senderId >= 0) {
-    for (const w of windows) {
-      if (w.chrome.webContents.id === senderId) return w
-      if (w.overlay.webContents.id === senderId) return w
-      if (w.tabs.byWebContentsId(senderId)) return w
-    }
+/** Which window a WebContents belongs to. Unknown senders never inherit focus. */
+function windowForSender(senderId: number): VoyagerWindow | null {
+  for (const w of windows) {
+    if (w.chrome.webContents.id === senderId) return w
+    if (w.overlay.webContents.id === senderId) return w
+    if (w.tabs.byWebContentsId(senderId)) return w
   }
-  return focused
+  return null
 }
 
-async function createWindow(key = `w-${randomUUID()}`): Promise<KiaWindow> {
+function uiWindowForSender(senderId: number): VoyagerWindow | null {
+  for (const w of windows) {
+    if (w.chrome.webContents.id === senderId || w.overlay.webContents.id === senderId) return w
+  }
+  return null
+}
+
+function pageWindowForSender(senderId: number): VoyagerWindow | null {
+  for (const w of windows) if (w.tabs.byWebContentsId(senderId)) return w
+  return null
+}
+
+async function createWindow(key = `w-${randomUUID()}`): Promise<VoyagerWindow> {
   const profiles = listProfiles()
   const profile = focused?.profile ?? profiles[0] ?? ensureDefaultProfile()
-  const win = new KiaWindow(profile, key)
+  const win = new VoyagerWindow(profile, key)
   windows.add(win)
   focused = win
 
   win.tabs.on('context-menu', (tab, params) => showPageContextMenu(win, tab.id, params))
+  win.chrome.webContents.on('context-menu', (_event, params) =>
+    showUiContextMenu(win, win.chrome.webContents, params))
+  win.overlay.webContents.on('context-menu', (_event, params) =>
+    showUiContextMenu(win, win.overlay.webContents, params))
   win.on('closing', () => {
     // `before-quit` has already persisted every window and closed the database
     // by the time these fire during a quit. Touching the store here would throw
@@ -158,16 +170,18 @@ async function createWindow(key = `w-${randomUUID()}`): Promise<KiaWindow> {
     // A permission sheet whose window went away must not leave the page waiting
     // on a promise nobody will ever settle.
     cancelFor(win)
+    engine.cancelFor(win)
     windows.delete(win)
     if (focused === win) focused = [...windows][0] ?? null
   })
   win.window.on('focus', () => { focused = win })
 
-  await win.load(DEV_URL, INDEX_HTML, OVERLAY_HTML)
+  await win.load(DEV_URL)
   return win
 }
 
 app.whenReady().then(async () => {
+  registerUiProtocol()
   openDb()
   ensureDefaultProfile()
   seedBuiltinSkills()
@@ -178,7 +192,7 @@ app.whenReady().then(async () => {
 
   setAboutPanel()
   setNewWindowHandler(() => void createWindow())
-  registerIpc(windowForSender)
+  registerIpc(uiWindowForSender, pageWindowForSender, () => windows, () => focused)
   // The permission prompt has to know which window to put a sheet on, and it is
   // handed a WebContents rather than a sender id.
   setWindowResolver((wc) => windowForSender(wc.id))
@@ -206,13 +220,13 @@ app.whenReady().then(async () => {
 }).catch((err) => {
   // A throw in here used to leave a running app with no window and no message.
   const detail = String((err as Error)?.stack ?? err)
-  console.error('[kia] startup failed:', detail)
+  console.error('[voyager] startup failed:', detail)
   try {
     writeFileSync(join(app.getPath('userData'), 'startup-error.log'),
       `${new Date().toISOString()}\n${detail}\n`)
   } catch { /* nothing useful left to do */ }
-  if (!process.env.KIA_NO_DIALOG) {
-    dialog.showErrorBox('Open Search could not start', detail)
+  if (!process.env.VOYAGER_NO_DIALOG) {
+    dialog.showErrorBox('Voyager could not start', detail)
   }
   app.exit(1)
 })
@@ -241,7 +255,7 @@ app.on('before-quit', async (event) => {
 
 // A renderer crash must not take the browser down silently.
 app.on('render-process-gone', (_e, _wc, details) => {
-  console.error('[kia] render process gone:', details.reason)
+  console.error('[voyager] render process gone:', details.reason)
 })
 
 /**
@@ -251,11 +265,11 @@ app.on('render-process-gone', (_e, _wc, details) => {
  * filter on one page is not a reason to make noise on every page load.
  */
 process.on('unhandledRejection', (reason) => {
-  console.error('[kia] unhandled rejection:', reason)
+  console.error('[voyager] unhandled rejection:', reason)
 })
 
 process.on('uncaughtException', (err) => {
-  console.error('[kia] uncaught:', err)
+  console.error('[voyager] uncaught:', err)
 })
 
 export { createWindow, windows }

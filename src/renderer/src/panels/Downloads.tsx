@@ -6,15 +6,15 @@ import { bytes, relTime } from '../state'
 export default function Downloads({ onClose }: { onClose: () => void }): JSX.Element {
   const [rows, setRows] = useState<DownloadEntry[]>([])
   useEffect(() => {
-    void window.kia.downloads.list().then(setRows)
-    return window.kia.downloads.onChanged(setRows)
+    void window.voyager.downloads.list().then(setRows)
+    return window.voyager.downloads.onChanged(setRows)
   }, [])
 
   return (
     <Panel
       title="Downloads"
       onClose={onClose}
-      actions={<button className="btn" onClick={async () => setRows(await window.kia.downloads.clear())}>
+      actions={<button className="btn" onClick={async () => setRows(await window.voyager.downloads.clear())}>
         Clear list
       </button>}
     >
@@ -31,7 +31,7 @@ export default function Downloads({ onClose }: { onClose: () => void }): JSX.Ele
           </div>
           <span className="when">{relTime(d.startedAt)}</span>
           {d.state === 'completed' && (
-            <button className="btn" onClick={() => window.kia.compose.reveal(d.path)}>Show</button>
+            <button className="btn" onClick={() => window.voyager.compose.reveal(d.path)}>Show</button>
           )}
         </div>
       ))}

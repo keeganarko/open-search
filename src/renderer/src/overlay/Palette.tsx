@@ -19,45 +19,45 @@ export default function Palette({ query, onClose }: { query: string; onClose: ()
 
   useEffect(() => { input.current?.focus() }, [])
   useEffect(() => {
-    void window.kia.layout.state().then((s) => setTabs(s.tabs))
-    void window.kia.skills.list().then(setSkills)
+    void window.voyager.layout.state().then((s) => setTabs(s.tabs))
+    void window.voyager.skills.list().then(setSkills)
   }, [])
   useEffect(() => {
     if (!q.trim()) return setHistory([])
-    const t = setTimeout(() => { void window.kia.history.search(q, 5).then(setHistory) }, 100)
+    const t = setTimeout(() => { void window.voyager.history.search(q, 5).then(setHistory) }, 100)
     return () => clearTimeout(t)
   }, [q])
 
   const go = (fn: () => void) => (): void => { fn(); onClose() }
 
   const commands: Cmd[] = [
-    { id: 'new-tab', glyph: '+', label: 'New tab', run: go(() => window.kia.tabs.create({})) },
+    { id: 'new-tab', glyph: '+', label: 'New tab', run: go(() => window.voyager.tabs.create({})) },
     { id: 'split', glyph: '◫', label: 'Split with the last tab', detail: 'Two pages side by side',
       run: go(async () => {
-        const s = await window.kia.layout.state()
+        const s = await window.voyager.layout.state()
         const others = s.tabs.filter((t) => t.id !== s.activeTabId)
         if (s.activeTabId && others.length) {
-          window.kia.layout.split([s.activeTabId, others[others.length - 1].id])
+          window.voyager.layout.split([s.activeTabId, others[others.length - 1].id])
         }
       }) },
-    { id: 'unsplit', glyph: '▭', label: 'Close split', run: go(() => window.kia.layout.clearSplit()) },
-    { id: 'organize', glyph: '⁝', label: 'Organize my tabs into groups', detail: 'Open Search decides the groups',
-      run: go(() => void window.kia.groups.autoOrganize()) },
-    { id: 'tidy', glyph: '⌫', label: 'Tidy up idle tabs', run: () => window.kia.openPanel('tidy') },
-    { id: 'sidebar', glyph: '◫', label: 'Toggle the Open Search sidebar', run: go(() => window.kia.layout.sidebar()) },
-    { id: 'brief', glyph: '◔', label: 'Morning brief', run: () => window.kia.openPanel('brief') },
-    { id: 'deck', glyph: '▤', label: 'Make a deck or a report', run: () => window.kia.openPanel('deck-composer') },
-    { id: 'history', glyph: '🕘', label: 'History', run: () => window.kia.openPanel('history') },
-    { id: 'memory', glyph: '◈', label: 'What Open Search remembers', run: () => window.kia.openPanel('memory') },
-    { id: 'skills', glyph: '✧', label: 'Skills', run: () => window.kia.openPanel('skills') },
-    { id: 'connectors', glyph: '⚯', label: 'Connectors', run: () => window.kia.openPanel('connectors') },
-    { id: 'downloads', glyph: '⤓', label: 'Downloads', run: () => window.kia.openPanel('downloads') },
-    { id: 'settings', glyph: '⚙', label: 'Settings', run: () => window.kia.openPanel('settings') },
+    { id: 'unsplit', glyph: '▭', label: 'Close split', run: go(() => window.voyager.layout.clearSplit()) },
+    { id: 'organize', glyph: '⁝', label: 'Organize my tabs into groups', detail: 'Voyager decides the groups',
+      run: go(() => void window.voyager.groups.autoOrganize()) },
+    { id: 'tidy', glyph: '⌫', label: 'Tidy up idle tabs', run: () => window.voyager.openPanel('tidy') },
+    { id: 'sidebar', glyph: '◫', label: 'Toggle the Voyager sidebar', run: go(() => window.voyager.layout.sidebar()) },
+    { id: 'brief', glyph: '◔', label: 'Morning brief', run: () => window.voyager.openPanel('brief') },
+    { id: 'deck', glyph: '▤', label: 'Make a deck or a report', run: () => window.voyager.openPanel('deck-composer') },
+    { id: 'history', glyph: '🕘', label: 'History', run: () => window.voyager.openPanel('history') },
+    { id: 'memory', glyph: '◈', label: 'What Voyager remembers', run: () => window.voyager.openPanel('memory') },
+    { id: 'skills', glyph: '✧', label: 'Skills', run: () => window.voyager.openPanel('skills') },
+    { id: 'connectors', glyph: '⚯', label: 'Connectors', run: () => window.voyager.openPanel('connectors') },
+    { id: 'downloads', glyph: '⤓', label: 'Downloads', run: () => window.voyager.openPanel('downloads') },
+    { id: 'settings', glyph: '⚙', label: 'Settings', run: () => window.voyager.openPanel('settings') },
     { id: 'bookmark', glyph: '☆', label: 'Bookmark this page',
       run: go(async () => {
-        const s = await window.kia.layout.state()
+        const s = await window.voyager.layout.state()
         const t = s.tabs.find((x) => x.id === s.activeTabId)
-        if (t) void window.kia.bookmarks.add(t.url, t.title)
+        if (t) void window.voyager.bookmarks.add(t.url, t.title)
       }) }
   ]
 
@@ -69,17 +69,17 @@ export default function Palette({ query, onClose }: { query: string; onClose: ()
     ...skills.filter((s) => match(s.slug) || match(s.name)).map((s) => ({
       id: `skill:${s.id}`, glyph: '✦', label: s.name, detail: `/${s.slug} — ${s.description}`,
       run: go(() => {
-        window.kia.layout.sidebar(true)
-        void window.kia.chat.send({ conversationId: null, text: '', attachments: [], skillSlug: s.slug })
+        window.voyager.layout.sidebar(true)
+        void window.voyager.chat.send({ conversationId: null, text: '', attachments: [], skillSlug: s.slug })
       })
     })),
     ...tabs.filter((t) => match(t.title) || match(t.url)).slice(0, 6).map((t) => ({
       id: `tab:${t.id}`, glyph: '▢', label: t.title || t.url, detail: t.url,
-      run: go(() => window.kia.tabs.activate(t.id))
+      run: go(() => window.voyager.tabs.activate(t.id))
     })),
     ...history.map((h) => ({
       id: `h:${h.id}`, glyph: '🕘', label: h.title || h.url, detail: h.url,
-      run: go(() => window.kia.tabs.create({ url: h.url }))
+      run: go(() => window.voyager.tabs.create({ url: h.url }))
     }))
   ]
 
@@ -87,7 +87,7 @@ export default function Palette({ query, onClose }: { query: string; onClose: ()
     <div className="scrim top" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="sheet">
         <div className="sheet-input">
-          <span className="kind">Open Search</span>
+          <span className="kind">Voyager</span>
           <input
             ref={input}
             value={q}

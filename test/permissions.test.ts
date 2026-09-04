@@ -54,6 +54,16 @@ describe('decide', () => {
     expect(fakeWin.showOverlay).not.toHaveBeenCalled()
   })
 
+  it('evaluates the requesting frame origin instead of inheriting the top page', async () => {
+    store.decision.mockReturnValue(null)
+    const excluded = (url: string): boolean => url.includes('embedded.example')
+    expect(await decide(
+      fakeWc('https://trusted.example'), 'geolocation', undefined, excluded,
+      'https://embedded.example/frame'
+    )).toBe(false)
+    expect(fakeWin.showOverlay).not.toHaveBeenCalled()
+  })
+
   it('denies a page with no origin to remember a decision against', async () => {
     expect(await decide(fakeWc('file:///Users/x/page.html'), 'geolocation', undefined, never)).toBe(false)
   })

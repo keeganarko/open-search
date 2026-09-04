@@ -23,8 +23,8 @@ function Overlay(): JSX.Element | null {
   const [mode, setMode] = useState<Mode>({ kind: 'closed' })
   const [settings, setSettings] = useState<Settings | null>(null)
 
-  useEffect(() => window.kia.overlay.onMode((m) => setMode(m as Mode)), [])
-  useEffect(() => { void window.kia.settings.get().then(setSettings) }, [])
+  useEffect(() => window.voyager.overlay.onMode((m) => setMode(m as Mode)), [])
+  useEffect(() => { void window.voyager.settings.get().then(setSettings) }, [])
 
   // The overlay covers the whole window, so a click outside the sheet is a dismiss.
   useEffect(() => {
@@ -46,7 +46,7 @@ function Overlay(): JSX.Element | null {
     }
   }, [settings])
 
-  const close = (): void => window.kia.overlay.close()
+  const close = (): void => window.voyager.overlay.close()
 
   // Escape closes the overlay — except for the sheets that answer a page's
   // pending promise. Those handle their own Escape, because closing without an

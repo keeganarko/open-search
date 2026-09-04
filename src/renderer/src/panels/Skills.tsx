@@ -7,7 +7,7 @@ const CONTEXT_LABELS: { k: keyof SkillContext; label: string }[] = [
   { k: 'selection', label: 'My selection' },
   { k: 'allTabs', label: 'All open tabs' },
   { k: 'history', label: 'My history' },
-  { k: 'memory', label: 'What Open Search remembers' },
+  { k: 'memory', label: 'What Voyager remembers' },
   { k: 'connectors', label: 'Connectors' }
 ]
 
@@ -22,11 +22,11 @@ export default function Skills({ onClose, toast }: {
   const [skills, setSkills] = useState<Skill[]>([])
   const [editing, setEditing] = useState<Partial<Skill> | null>(null)
 
-  useEffect(() => { void window.kia.skills.list().then(setSkills) }, [])
+  useEffect(() => { void window.voyager.skills.list().then(setSkills) }, [])
 
   const save = async (): Promise<void> => {
     if (!editing?.slug || !editing.prompt) return toast('A skill needs a slug and a prompt.', 'error')
-    setSkills(await window.kia.skills.save(editing))
+    setSkills(await window.voyager.skills.save(editing))
     setEditing(null)
   }
 
@@ -101,9 +101,9 @@ export default function Skills({ onClose, toast }: {
               <button className="btn" onClick={() => setEditing(s)}>Edit</button>
               {s.builtin
                 ? <button className="btn" title="Restore the shipped version"
-                    onClick={async () => setSkills(await window.kia.skills.reset(s.slug))}>Reset</button>
+                    onClick={async () => setSkills(await window.voyager.skills.reset(s.slug))}>Reset</button>
                 : <button className="btn danger"
-                    onClick={async () => setSkills(await window.kia.skills.remove(s.id))}>Delete</button>}
+                    onClick={async () => setSkills(await window.voyager.skills.remove(s.id))}>Delete</button>}
             </div>
           ))}
           {skills.length === 0 && <div className="empty">No skills.</div>}

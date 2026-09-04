@@ -10,29 +10,29 @@ export default function Memory({ onClose }: { onClose: () => void }): JSX.Elemen
   const [draft, setDraft] = useState('')
   const [kind, setKind] = useState<MemoryKind>('fact')
 
-  useEffect(() => { void window.kia.memory.list().then(setItems) }, [])
+  useEffect(() => { void window.voyager.memory.list().then(setItems) }, [])
 
   return (
     <Panel
-      title="What Open Search remembers"
+      title="What Voyager remembers"
       onClose={onClose}
       actions={
         <button className="btn danger" onClick={async () => {
-          if (items.length) setItems(await window.kia.memory.clear())
+          if (items.length) setItems(await window.voyager.memory.clear())
         }}>Forget everything</button>
       }
     >
       <div className="desc" style={{ marginBottom: 14, maxWidth: 640 }}>
-        Open Search writes these itself as you browse and chat, and reads them back as background —
+        Voyager writes these itself as you browse and chat, and reads them back as background —
         never as instructions. Delete anything that is wrong or that you would rather it did not know.
       </div>
 
       <div className="row" style={{ marginBottom: 18, maxWidth: 640 }}>
-        <input type="text" style={{ flex: 1 }} placeholder="Add something Open Search should know…"
+        <input type="text" style={{ flex: 1 }} placeholder="Add something Voyager should know…"
           value={draft} onChange={(e) => setDraft(e.target.value)}
           onKeyDown={async (e) => {
             if (e.key === 'Enter' && draft.trim()) {
-              setItems(await window.kia.memory.add(draft.trim(), kind))
+              setItems(await window.voyager.memory.add(draft.trim(), kind))
               setDraft('')
             }
           }} />
@@ -54,11 +54,11 @@ export default function Memory({ onClose }: { onClose: () => void }): JSX.Elemen
             </div>
           </div>
           <button className="iconbtn" title={m.pinned ? 'Unpin' : 'Pin'}
-            onClick={async () => setItems(await window.kia.memory.pin(m.id, !m.pinned))}>
+            onClick={async () => setItems(await window.voyager.memory.pin(m.id, !m.pinned))}>
             {m.pinned ? '★' : '☆'}
           </button>
           <button className="iconbtn" title="Forget"
-            onClick={async () => setItems(await window.kia.memory.remove(m.id))}>×</button>
+            onClick={async () => setItems(await window.voyager.memory.remove(m.id))}>×</button>
         </div>
       ))}
     </Panel>

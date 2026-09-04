@@ -1,12 +1,14 @@
 import type Anthropic from '@anthropic-ai/sdk'
-import type { KiaWindow } from '../browser/window'
+import type { VoyagerWindow } from '../browser/window'
 import type { ActionClass } from '@shared/types'
 import { readTab, readSelection, renderPage, renderTabList } from './context'
 import { prettyHost, resolveInput } from '../browser/urls'
 import { getSettings } from '../store/settings'
+import { isExcluded } from '../store/settings'
+import { callPage } from '../browser/pageBridge'
 import * as db from '../store/db'
 
-export interface KiaTool {
+export interface VoyagerTool {
   definition: Anthropic.Tool
   actionClass: ActionClass
   /** Short human sentence shown in the approval sheet and the step list. */
@@ -19,7 +21,7 @@ const jsonSchema = (properties: Record<string, unknown>, required: string[] = []
   type: 'object' as const, properties, required, additionalProperties: false
 })
 
-export function browserTools(win: KiaWindow): KiaTool[] {
+export function browserTools(win: VoyagerWindow): VoyagerTool[] {
   const tabTitle = (id: string) => win.tabs.get(id)?.state.title ?? id
 
   return [
@@ -209,7 +211,7 @@ export function browserTools(win: KiaWindow): KiaTool[] {
     },
 
     {
-      actionClass: 'local_reversible',
+      actionClass: 'sensitive',
       describe: (i) => `Forget memories matching “${i.query}”`,
       definition: {
         name: 'forget',
@@ -218,6 +220,7 @@ export function browserTools(win: KiaWindow): KiaTool[] {
       },
       run: async (i) => {
         const q = String(i.query).toLowerCase()
+        if (q.trim().length < 3) return 'Use at least three characters so a broad fragment cannot erase unrelated memories.'
         const hits = db.listMemory(win.profile.id).filter((m) => m.text.toLowerCase().includes(q))
         for (const h of hits) db.deleteMemory(h.id)
         return hits.length ? `Forgot ${hits.length}: ${hits.map((h) => `“${h.text}”`).join(', ')}` : 'Nothing matched.'
@@ -258,11 +261,13 @@ export function browserTools(win: KiaWindow): KiaTool[] {
       run: async (i) => {
         const tab = win.tabs.active()
         if (!tab) return 'No active tab.'
-        const payload = JSON.stringify({ text: String(i.text), replace: i.replace_selection !== false })
+        if (isExcluded(tab.state.url)) {
+          return 'This site is excluded. Voyager did not touch the page.'
+        }
         try {
-          const res = await tab.view.webContents.executeJavaScript(
-            `window.__kia?.insertText?.(${payload}) ?? false`, true
-          )
+          const res = await callPage<boolean>(tab.view.webContents, 'insertText', {
+            text: String(i.text), replace: i.replace_selection !== false
+          })
           return res ? 'Inserted the draft into the focused field. Nothing was submitted.'
                      : 'No editable field is focused on the page, so nothing was inserted.'
         } catch {

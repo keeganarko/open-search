@@ -9,7 +9,7 @@ const ctx = (p: Partial<SkillContext>): SkillContext => ({
 
 type Seed = Omit<Skill, 'id' | 'builtin' | 'createdAt' | 'updatedAt'>
 
-/** Dia ships Write, Code and a set of page actions; these are Open Search's equivalents. */
+/** Built-in writing, coding, research, and page-action skills. */
 const SEEDS: Seed[] = [
   {
     slug: 'summary', name: 'Summarize', hotkey: 'CommandOrControl+Shift+S',

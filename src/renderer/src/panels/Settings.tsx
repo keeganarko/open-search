@@ -17,6 +17,9 @@ const PERMISSION_LABEL: Record<string, string> = {
   notifications: 'Notifications',
   'display-capture': 'Screen sharing',
   'clipboard-read': 'Clipboard',
+  fullscreen: 'Fullscreen',
+  pointerLock: 'Mouse pointer capture',
+  keyboardLock: 'Keyboard shortcut capture',
   midi: 'MIDI',
   midiSysex: 'MIDI system messages',
   'idle-detection': 'Idle detection',
@@ -33,7 +36,7 @@ const ACTION_CLASSES: { id: ActionClass; label: string; hint: string }[] = [
   { id: 'read', label: 'Read', hint: 'Read a page, a tab, your history.' },
   { id: 'local_reversible', label: 'Local + reversible', hint: 'Open a tab, group tabs, remember a fact.' },
   { id: 'external_draft', label: 'Draft', hint: 'Write into a field without sending.' },
-  { id: 'external_write', label: 'External write', hint: 'Send, post, or create outside Open Search.' },
+  { id: 'external_write', label: 'External write', hint: 'Send, post, or create outside Voyager.' },
   { id: 'sensitive', label: 'Sensitive', hint: 'Money, deletion, credentials. Always asks.' }
 ]
 
@@ -63,16 +66,15 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
   // none of them is cheap enough to pay for on a settings panel that mostly
   // gets opened to change a checkbox.
   useEffect(() => {
-    if (tab === 'Sites' && !perms) void window.kia.permissions.list().then(setPerms)
-    if (tab === 'Passwords' && !logins) void window.kia.logins.list().then(setLogins)
-    if (tab === 'Extensions' && !exts) void window.kia.extensions.list().then(setExts)
+    if (tab === 'Sites' && !perms) void window.voyager.permissions.list().then(setPerms)
+    if (tab === 'Passwords' && !logins) void window.voyager.logins.list().then(setLogins)
+    if (tab === 'Extensions' && !exts) void window.voyager.extensions.list().then(setExts)
   }, [tab, perms, logins, exts])
 
   const reveal = useCallback(async (id: string) => {
     if (shown[id]) return setShown((s) => { const n = { ...s }; delete n[id]; return n })
-    const secret = await window.kia.logins.reveal(id)
+    const secret = await window.voyager.logins.reveal(id)
     if (secret) setShown((s) => ({ ...s, [id]: secret }))
-    else toast('That password could not be decrypted.', 'error')
   }, [shown, toast])
 
   const ai = settings.ai
@@ -91,7 +93,8 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
           <div className="field">
             <label>Anthropic API key</label>
             <div className="desc">
-              Stored in your macOS keychain, never in the settings file and never in a sync bundle.
+              Stored with your operating system&apos;s protected credential storage, never in the
+              settings file and never in a sync bundle.
               {ai.apiKey ? ' A key is set.' : ' No key set yet.'}
             </div>
             <div className="row">
@@ -100,12 +103,16 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
               <button className="btn primary" disabled={!key || testing}
                 onClick={async () => {
                   setTesting(true)
-                  const res = await window.kia.settings.testKey(key)
+                  const res = await window.voyager.settings.testKey(key)
                   setTesting(false)
                   if (!res.ok) return toast(res.error ?? 'Key rejected.', 'error')
-                  await update({ ai: { apiKey: key } })
-                  setKey('')
-                  toast('Key saved.')
+                  try {
+                    await update({ ai: { apiKey: key } })
+                    setKey('')
+                    toast('Key saved.')
+                  } catch (err) {
+                    toast(err instanceof Error ? err.message : String(err), 'error')
+                  }
                 }}>{testing ? 'Testing…' : 'Test & save'}</button>
               {ai.apiKey && (
                 <button className="btn danger" onClick={() => update({ ai: { apiKey: null } })}>
@@ -126,7 +133,7 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
 
           <div className="field">
             <label>Effort</label>
-            <div className="desc">How hard Open Search thinks before answering. Higher costs more and takes longer.</div>
+            <div className="desc">How hard Voyager thinks before answering. Higher costs more and takes longer.</div>
             <select value={ai.effort}
               onChange={(e) => update({ ai: { effort: e.target.value as S['ai']['effort'] } })}>
               {['low', 'medium', 'high', 'xhigh', 'max'].map((e) => <option key={e} value={e}>{e}</option>)}
@@ -136,12 +143,12 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
           <label className="check">
             <input type="checkbox" checked={ai.showThinking}
               onChange={(e) => update({ ai: { showThinking: e.target.checked } })} />
-            Show Open Search's thinking
+            Show Voyager's thinking
           </label>
           <label className="check">
             <input type="checkbox" checked={ai.contextConsent}
               onChange={(e) => update({ ai: { contextConsent: e.target.checked } })} />
-            Let Open Search read the page you are on without asking each time
+            Let Voyager read the page you are on without asking each time
           </label>
         </>
       )}
@@ -151,7 +158,7 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
           <label className="check">
             <input type="checkbox" checked={p.paused}
               onChange={(e) => update({ privacy: { paused: e.target.checked } })} />
-            <strong>Pause Open Search</strong> — stop recording history and reading pages entirely
+            <strong>Pause Voyager</strong> — stop recording history and reading pages entirely
           </label>
           <label className="check">
             <input type="checkbox" checked={p.blockAds}
@@ -171,7 +178,7 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
           <label className="check">
             <input type="checkbox" checked={p.memoryEnabled}
               onChange={(e) => update({ privacy: { memoryEnabled: e.target.checked } })} />
-            Let Open Search remember things about you
+            Let Voyager remember things about you
           </label>
           <label className="check">
             <input type="checkbox" checked={p.clearOnQuit}
@@ -236,17 +243,17 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
           <label className="check">
             <input type="checkbox" checked={settings.appearance.compactChrome}
               onChange={(e) => update({ appearance: { compactChrome: e.target.checked } })} />
-            Compact chrome
+            Compact browser UI
           </label>
           <label className="check">
             <input type="checkbox" checked={settings.appearance.startupStory}
               onChange={(e) => update({ appearance: { startupStory: e.target.checked } })} />
-            Show the opening story on launch
+            Show the Voyager animation on launch
           </label>
           <label className="check">
             <input type="checkbox" checked={settings.appearance.startupSound}
               onChange={(e) => update({ appearance: { startupSound: e.target.checked } })} />
-            Play the opening theme on launch
+            Play the Voyager startup sound
           </label>
           {settings.appearance.startupSound && (
             <div className="field">
@@ -257,9 +264,7 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
                   appearance: { startupVolume: Number(e.target.value) }
                 })} />
               <div className="desc">
-                Plays once when the first window opens, then settles into a quiet loop
-                that fades as soon as you start using the browser. Derived from the
-                Big Buck Bunny theme (Blender Foundation, CC BY 3.0).
+                Plays an original synthesized signature when the first window opens.
               </div>
             </div>
           )}
@@ -281,7 +286,7 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
           <label className="check">
             <input type="checkbox" checked={settings.search.askFirst}
               onChange={(e) => update({ search: { askFirst: e.target.checked } })} />
-            Send questions typed in the address bar to Open Search instead of the search engine
+            Send questions typed in the address bar to Voyager instead of the search engine
           </label>
         </>
       )}
@@ -342,7 +347,7 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
       {tab === 'Sync' && (
         <>
           <div className="desc" style={{ marginBottom: 14, maxWidth: 620 }}>
-            Open Search writes one encrypted file to a folder you choose — put that folder in
+            Voyager writes one encrypted file to a folder you choose — put that folder in
             iCloud or Dropbox and your other machines can read it. Tabs, groups, memory,
             skills, bookmarks and settings travel. Your API key never does.
           </div>
@@ -351,31 +356,34 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
             <div className="row">
               <input type="text" readOnly value={settings.sync.folder ?? 'Not set'} />
               <button className="btn" onClick={async () => {
-                const f = await window.kia.sync.chooseFolder()
+                const f = await window.voyager.sync.chooseFolder()
                 if (f) await update({ sync: { folder: f } })
               }}>Choose…</button>
             </div>
           </div>
           <div className="field">
             <label>Passphrase</label>
-            <div className="desc">At least 8 characters. Open Search cannot recover it — if you lose it, the bundle is gone.</div>
+            <div className="desc">At least 8 characters. Voyager cannot recover it — if you lose it, the bundle is gone.</div>
             <input type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />
           </div>
           <div className="row">
             <button className="btn primary" disabled={!settings.sync.folder || passphrase.length < 8}
               onClick={async () => {
                 try {
-                  const r = await window.kia.sync.export(settings.sync.folder!, passphrase)
+                  const r = await window.voyager.sync.export(settings.sync.folder!, passphrase)
                   toast(`Exported to ${r.path}`)
                 } catch (e) { toast(String((e as Error).message), 'error') }
               }}>Export now</button>
             <button className="btn" disabled={passphrase.length < 8}
               onClick={async () => {
                 try {
-                  const r = await window.kia.sync.import(passphrase)
+                  const r = await window.voyager.sync.import(passphrase)
                   if (!r) return
-                  toast(`Imported ${Object.entries(r.imported)
-                    .map(([k, v]) => `${v} ${k}`).join(', ')}`)
+                  const counts = [
+                    `${r.skills} skills`, `${r.memory} memories`, `${r.bookmarks} bookmarks`,
+                    `${r.connectors} connectors`
+                  ]
+                  toast(`Imported ${counts.join(', ')}${r.settings ? ', and settings' : ''}.`)
                 } catch (e) { toast(String((e as Error).message), 'error') }
               }}>Import…</button>
           </div>
@@ -409,13 +417,13 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
                 {sp.allowed ? 'allowed' : 'blocked'}
               </span>
               <button className="btn" onClick={async () => {
-                setPerms(await window.kia.permissions.revoke(sp.origin, sp.permission))
+                setPerms(await window.voyager.permissions.revoke(sp.origin, sp.permission))
               }}>Forget</button>
             </div>
           ))}
           {!!perms?.length && (
             <button className="btn danger" style={{ marginTop: 14 }} onClick={async () => {
-              setPerms(await window.kia.permissions.clear())
+              setPerms(await window.voyager.permissions.clear())
               toast('Every site will be asked again.')
             }}>Forget all</button>
           )}
@@ -425,9 +433,10 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
       {tab === 'Passwords' && (
         <>
           <div className="desc" style={{ marginBottom: 16, maxWidth: 620 }}>
-            Encrypted with your macOS keychain before they reach Open Search&apos;s database, so the
-            file on disk holds nothing readable. Open Search offers to save one when you sign in,
-            and fills it only on the site it came from. Excluded sites are never offered.
+            Encrypted with your operating system&apos;s protected credential storage before they
+            reach Voyager&apos;s database, so the file on disk holds nothing readable. Voyager
+            offers to save one when you sign in, and fills it only on the site it came from.
+            Excluded sites are never offered.
           </div>
           {logins === null && <div className="empty">Loading…</div>}
           {logins?.length === 0 && <div className="empty">No saved passwords.</div>}
@@ -444,7 +453,7 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
                 {shown[l.id] ? 'Hide' : 'Show'}
               </button>
               <button className="btn danger" onClick={async () => {
-                setLogins(await window.kia.logins.remove(l.id))
+                setLogins(await window.voyager.logins.remove(l.id))
               }}>Delete</button>
             </div>
           ))}
@@ -454,14 +463,14 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
       {tab === 'Extensions' && (
         <>
           <div className="desc" style={{ marginBottom: 16, maxWidth: 620 }}>
-            Unpacked Chrome extensions. Electron implements a useful subset of the
+            Unpacked extensions. Voyager implements a useful subset of the
             extension APIs — content scripts, storage and declarativeNetRequest work;
             toolbar popups and blocking webRequest do not exist, so an extension built
             around those will load and then quietly do nothing. There is no Web Store
-            here: point Open Search at a folder containing manifest.json.
+            here: point Voyager at a folder containing manifest.json.
           </div>
           <button className="btn primary" onClick={async () => {
-            try { setExts(await window.kia.extensions.add()) }
+            try { setExts(await window.voyager.extensions.add()) }
             catch (e) { toast(String((e as Error).message), 'error') }
           }}>Load an extension folder…</button>
 
@@ -482,11 +491,11 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
                 </span>
                 <span className="badge">MV{x.manifestVersion}</span>
                 <button className="btn" onClick={async () => {
-                  setExts(await window.kia.extensions.toggle(x.path, !x.enabled))
-                  toast('Restart Open Search for that to take full effect.')
+                  setExts(await window.voyager.extensions.toggle(x.path, !x.enabled))
+                  toast('Restart Voyager for that to take full effect.')
                 }}>{x.enabled ? 'Disable' : 'Enable'}</button>
                 <button className="btn danger" onClick={async () => {
-                  setExts(await window.kia.extensions.remove(x.path))
+                  setExts(await window.voyager.extensions.remove(x.path))
                 }}>Remove</button>
               </div>
             </div>

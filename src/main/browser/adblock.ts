@@ -6,9 +6,11 @@ import type { Session } from 'electron'
 
 let blockerPromise: Promise<ElectronBlocker> | null = null
 const attached = new WeakSet<Session>()
+const counted = new WeakSet<ElectronBlocker>()
 
 /** Counters the UI shows per tab; keyed by the tab's webContents id. */
 const counts = new Map<number, number>()
+const countListeners = new Set<(webContentsId: number, count: number) => void>()
 
 function cachePath(): string {
   return join(app.getPath('userData'), 'adblock', 'engine.bin')
@@ -16,7 +18,7 @@ function cachePath(): string {
 
 async function loadBlocker(): Promise<ElectronBlocker> {
   const path = cachePath()
-  return ElectronBlocker.fromPrebuiltAdsAndTracking(fetch, {
+  const blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(fetch, {
     path,
     read: async (p) => readFile(p),
     write: async (p, buf) => {
@@ -24,6 +26,17 @@ async function loadBlocker(): Promise<ElectronBlocker> {
       await writeFile(p, buf)
     }
   })
+  // The blocker instance is shared by every profile session. Installing this
+  // inside `attachBlocker` counted one request once per profile.
+  if (!counted.has(blocker)) {
+    counted.add(blocker)
+    blocker.on('request-blocked', (request: { tabId: number }) => {
+      const count = (counts.get(request.tabId) ?? 0) + 1
+      counts.set(request.tabId, count)
+      for (const listener of countListeners) listener(request.tabId, count)
+    })
+  }
+  return blocker
 }
 
 export async function attachBlocker(ses: Session): Promise<void> {
@@ -33,21 +46,22 @@ export async function attachBlocker(ses: Session): Promise<void> {
     blockerPromise ??= loadBlocker()
     const blocker = await blockerPromise
     blocker.enableBlockingInSession(ses)
-    blocker.on('request-blocked', (request: { tabId: number }) => {
-      counts.set(request.tabId, (counts.get(request.tabId) ?? 0) + 1)
-    })
   } catch (err) {
     // A failed filter-list fetch must not stop the browser from starting.
-    console.error('[kia] ad blocker unavailable:', err)
+    console.error('[voyager] ad blocker unavailable:', err)
     attached.delete(ses)
+    blockerPromise = null
   }
 }
 
 export async function detachBlocker(ses: Session): Promise<void> {
   if (!blockerPromise) return
-  const blocker = await blockerPromise
-  blocker.disableBlockingInSession(ses)
-  attached.delete(ses)
+  try {
+    const blocker = await blockerPromise
+    blocker.disableBlockingInSession(ses)
+  } finally {
+    attached.delete(ses)
+  }
 }
 
 export function blockedCount(webContentsId: number): number {
@@ -56,4 +70,12 @@ export function blockedCount(webContentsId: number): number {
 
 export function resetCount(webContentsId: number): void {
   counts.delete(webContentsId)
+  for (const listener of countListeners) listener(webContentsId, 0)
+}
+
+export function watchBlockedCounts(
+  listener: (webContentsId: number, count: number) => void
+): () => void {
+  countListeners.add(listener)
+  return () => { countListeners.delete(listener) }
 }

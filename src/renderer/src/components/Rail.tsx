@@ -23,7 +23,7 @@ function splitUrl(url: string): { lock: string; host: string; rest: string } {
 }
 
 /**
- * The left rail, Dia-shaped: pinned sites as favicon tiles across the top, the
+ * The left rail: pinned sites as favicon tiles across the top, the
  * omnibox and its nav under them, then the tabs running down the side, then the
  * new-tab row, then the panel buttons along the bottom.
  *
@@ -40,12 +40,14 @@ export default function Rail({
 
   const url = active?.url ?? ''
   const parts = splitUrl(url)
+  const mod = window.voyager.platform === 'darwin' ? '⌘' : 'Ctrl+'
+  const shift = window.voyager.platform === 'darwin' ? '⌘⇧' : 'Ctrl+Shift+'
 
   useEffect(() => {
     // Hostless URLs (a blank new tab, a local file) are excluded by definition,
     // and badging every one of them would make the shield meaningless.
     if (!/^https?:/i.test(url)) return setExcluded(false)
-    void window.kia.settings.isExcluded(url).then(setExcluded)
+    void window.voyager.settings.isExcluded(url).then(setExcluded)
   }, [url])
 
   const ordered = [...state.tabs].sort((a, b) => a.index - b.index)
@@ -72,10 +74,10 @@ export default function Rail({
     if (to < 0) return
     if (after) to += 1
     order.splice(to, 0, dragId)
-    window.kia.tabs.reorder(order)
+    window.voyager.tabs.reorder(order)
     // Dropping into another group's run adopts that group.
     if (target.groupId !== ordered.find((t) => t.id === dragId)?.groupId) {
-      window.kia.groups.assign([dragId], target.groupId)
+      window.voyager.groups.assign([dragId], target.groupId)
     }
     setDragId(null)
   }
@@ -101,15 +103,24 @@ export default function Rail({
         key={t.id}
         className={cls}
         title={`${t.title}\n${t.url}\n\nRight-click to pin`}
+        role="tab"
+        tabIndex={0}
+        aria-selected={isActive}
         draggable
         onDragStart={() => setDragId(t.id)}
         onDragEnd={() => { setDragId(null); setDropOn(null) }}
         onDragOver={(e) => { e.preventDefault(); setDropOn({ id: t.id, after: below(e) }) }}
         onDragLeave={() => setDropOn((d) => (d?.id === t.id ? null : d))}
         onDrop={(e) => onDrop(e, t, below(e))}
-        onClick={() => window.kia.tabs.activate(t.id)}
-        onAuxClick={(e) => { if (e.button === 1) window.kia.tabs.close(t.id) }}
-        onContextMenu={(e) => { e.preventDefault(); window.kia.tabs.pin(t.id, true) }}
+        onClick={() => window.voyager.tabs.activate(t.id)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            window.voyager.tabs.activate(t.id)
+          }
+        }}
+        onAuxClick={(e) => { if (e.button === 1) window.voyager.tabs.close(t.id) }}
+        onContextMenu={(e) => { e.preventDefault(); window.voyager.tabs.pin(t.id, true) }}
       >
         {t.loading
           ? <span className="spinner" />
@@ -127,7 +138,7 @@ export default function Rail({
         <button
           className="x"
           title="Close tab"
-          onClick={(e) => { e.stopPropagation(); window.kia.tabs.close(t.id) }}
+          onClick={(e) => { e.stopPropagation(); window.voyager.tabs.close(t.id) }}
         >×</button>
       </div>
     )
@@ -148,9 +159,9 @@ export default function Rail({
               key={t.id}
               className={`pintile${t.id === state.activeTabId ? ' active' : ''}`}
               title={`${t.title || t.url}\n\nRight-click to unpin`}
-              onClick={() => window.kia.tabs.activate(t.id)}
-              onAuxClick={(e) => { if (e.button === 1) window.kia.tabs.close(t.id) }}
-              onContextMenu={(e) => { e.preventDefault(); window.kia.tabs.pin(t.id, false) }}
+              onClick={() => window.voyager.tabs.activate(t.id)}
+              onAuxClick={(e) => { if (e.button === 1) window.voyager.tabs.close(t.id) }}
+              onContextMenu={(e) => { e.preventDefault(); window.voyager.tabs.pin(t.id, false) }}
             >
               {t.favicon
                 ? <img src={t.favicon} alt="" onError={(e) => {
@@ -163,29 +174,41 @@ export default function Rail({
       )}
 
       <div className="rail-nav">
-        <button className="iconbtn" title="Back (⌘[)" disabled={!active?.canGoBack}
-          onClick={() => active && window.kia.tabs.back(active.id)}>‹</button>
-        <button className="iconbtn" title="Forward (⌘])" disabled={!active?.canGoForward}
-          onClick={() => active && window.kia.tabs.forward(active.id)}>›</button>
-        <button className="iconbtn" title={active?.loading ? 'Stop (Esc)' : 'Reload (⌘R)'}
+        <button className="iconbtn" title={`Back (${mod}[)`} disabled={!active?.canGoBack}
+          onClick={() => active && window.voyager.tabs.back(active.id)}>‹</button>
+        <button className="iconbtn" title={`Forward (${mod}])`} disabled={!active?.canGoForward}
+          onClick={() => active && window.voyager.tabs.forward(active.id)}>›</button>
+        <button className="iconbtn" title={active?.loading ? 'Stop (Esc)' : `Reload (${mod}R)`}
           disabled={!active}
           onClick={() => {
             if (!active) return
-            active.loading ? window.kia.tabs.stop(active.id) : window.kia.tabs.reload(active.id)
+            active.loading ? window.voyager.tabs.stop(active.id) : window.voyager.tabs.reload(active.id)
           }}>{active?.loading ? '×' : '⟳'}</button>
-        <button className="iconbtn" title="Bookmark this page (⌘D)" disabled={!active}
-          onClick={() => active && window.kia.bookmarks.add(active.url, active.title)}>☆</button>
+        <button className="iconbtn" title={`Bookmark this page (${mod}D)`} disabled={!active}
+          onClick={() => active && window.voyager.bookmarks.add(active.url, active.title)}>☆</button>
       </div>
 
-      <div className="omnibox" onClick={onOmnibox}
-        title="Search, type a URL, or ask Open Search (⌘L)">
+      <div className="omnibox" onClick={onOmnibox} role="button" tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onOmnibox()
+          }
+        }}
+        title={`Search, type a URL, or ask Voyager (${mod}L)`}>
         {parts.lock && <span className="lock">{parts.lock}</span>}
         <span className="url">
           {url
             ? <><span className="host">{parts.host}</span><span className="rest">{parts.rest}</span></>
             : <span className="rest">Search, type a URL, or ask…</span>}
         </span>
-        {excluded && <span className="shield" title="Excluded — Open Search never reads this site">no-read</span>}
+        {excluded
+          ? <span className="shield" title="Excluded — Voyager never reads this site">no-read</span>
+          : !!active?.blockedRequests && (
+              <span className="shield" title={`${active.blockedRequests} ad or tracking request${active.blockedRequests === 1 ? '' : 's'} blocked`}>
+                {active.blockedRequests} blocked
+              </span>
+            )}
       </div>
 
       <div className="rail-tabs">
@@ -200,10 +223,10 @@ export default function Rail({
                   title={group.meeting
                     ? `${group.title} — ${group.meeting.eventTitle}`
                     : `${group.title} — click to collapse`}
-                  onClick={() => window.kia.groups.update(group.id, { collapsed: !group.collapsed })}
+                  onClick={() => window.voyager.groups.update(group.id, { collapsed: !group.collapsed })}
                   onContextMenu={(e) => {
                     e.preventDefault()
-                    window.kia.groups.remove(group.id, false)
+                    window.voyager.groups.remove(group.id, false)
                   }}
                 >
                   <span className="dot" style={{ background: group.color }} />
@@ -219,16 +242,16 @@ export default function Rail({
 
       {/* Below the scroller, not inside it, so a long tab list never pushes the
           + out of reach — the whole reason it moved off the top-right. */}
-      <button className="newtab" title="New tab (⌘T)" onClick={() => window.kia.tabs.create({})}>
+      <button className="newtab" title={`New tab (${mod}T)`} onClick={() => window.voyager.tabs.create({})}>
         <span className="plus">+</span> New tab
       </button>
 
       <div className="rail-actions">
-        <button className={`iconbtn${panel === 'history' ? ' on' : ''}`} title="History (⌘Y)"
+        <button className={`iconbtn${panel === 'history' ? ' on' : ''}`} title={`History (${window.voyager.platform === 'darwin' ? '⌘Y' : 'Ctrl+H'})`}
           onClick={() => onPanel(panel === 'history' ? null : 'history')}>🕘</button>
-        <button className={`iconbtn${panel === 'bookmarks' ? ' on' : ''}`} title="Bookmarks (⌘⇧O)"
+        <button className={`iconbtn${panel === 'bookmarks' ? ' on' : ''}`} title={`Bookmarks (${shift}O)`}
           onClick={() => onPanel(panel === 'bookmarks' ? null : 'bookmarks')}>☰</button>
-        <button className={`iconbtn${panel === 'brief' ? ' on' : ''}`} title="Morning brief (⌘⇧B)"
+        <button className={`iconbtn${panel === 'brief' ? ' on' : ''}`} title={`Morning brief (${shift}B)`}
           onClick={() => onPanel(panel === 'brief' ? null : 'brief')}>◔</button>
         <span className="grow" />
         <button
@@ -238,13 +261,13 @@ export default function Rail({
             const others = state.profiles.filter((p) => p.id !== state.profile.id)
             if (!others.length) return onPanel('settings')
             const idx = state.profiles.findIndex((p) => p.id === state.profile.id)
-            void window.kia.profiles.switch(state.profiles[(idx + 1) % state.profiles.length].id)
+            void window.voyager.profiles.switch(state.profiles[(idx + 1) % state.profiles.length].id)
           }}
         >
           <span className="profiledot" style={{ background: state.profile.color }} />
         </button>
-        <button className={`iconbtn${state.sidebarOpen ? ' on' : ''}`} title="Toggle Open Search (⌘⇧K)"
-          onClick={() => window.kia.layout.sidebar(!state.sidebarOpen)}>◫</button>
+        <button className={`iconbtn${state.sidebarOpen ? ' on' : ''}`} title={`Toggle Voyager (${shift}K)`}
+          onClick={() => window.voyager.layout.sidebar(!state.sidebarOpen)}>◫</button>
       </div>
     </div>
   )

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { KiaWindow } from '../browser/window'
+import type { VoyagerWindow } from '../browser/window'
 import type { Brief, BriefSection } from '@shared/types'
 import { getSettings } from '../store/settings'
 import { oneShot, parseJsonBlock } from './oneshot'
@@ -23,7 +23,7 @@ export function existingBrief(profileId: string): Brief | null {
   return db.getBrief(profileId, todayKey())
 }
 
-export async function generateBrief(win: KiaWindow): Promise<Brief> {
+export async function generateBrief(win: VoyagerWindow): Promise<Brief> {
   const settings = getSettings()
   const wanted: string[] = []
   if (settings.brief.includeCalendar) wanted.push("today's calendar events, with their real start times")

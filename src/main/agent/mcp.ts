@@ -4,11 +4,82 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { McpServerConfig, McpServerStatus, ActionClass } from '@shared/types'
 import * as db from '../store/db'
 
+/**
+ * Stdio connectors need enough of the host environment to find executables and
+ * their home/config directories, but they do not need every secret inherited by
+ * the browser process. Connector-specific credentials still come from the
+ * explicit `config.env` block.
+ */
+export function connectorBaseEnv(
+  source: NodeJS.ProcessEnv = process.env
+): Record<string, string> {
+  const exact = new Set([
+    'PATH', 'Path', 'PATHEXT', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH',
+    'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'SYSTEMROOT', 'SystemRoot',
+    'WINDIR', 'COMSPEC', 'TEMP', 'TMP', 'TMPDIR', 'USER', 'LOGNAME', 'SHELL',
+    'LANG', 'TERM', 'COLORTERM', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME',
+    'XDG_DATA_HOME', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS'
+  ])
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value !== 'string') continue
+    if (exact.has(key) || /^LC_[A-Z_]+$/.test(key)) out[key] = value
+  }
+  return out
+}
+
 interface Live {
   config: McpServerConfig
   client: Client | null
   tools: { name: string; description: string; schema: any; actionClass: ActionClass }[]
   error: string | null
+}
+
+function validateMap(
+  value: Record<string, string> | undefined,
+  kind: 'environment' | 'header'
+): void {
+  const entries = Object.entries(value ?? {})
+  if (entries.length > 100) throw new Error(`Too many ${kind} values.`)
+  for (const [key, item] of entries) {
+    const validKey = kind === 'environment'
+      ? /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(key)
+      : /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/.test(key)
+    if (!validKey) throw new Error(`Invalid ${kind} name: ${key || '(empty)'}`)
+    if (typeof item !== 'string' || item.length > 65_536 || /[\0\r\n]/.test(item)) {
+      throw new Error(`Invalid value for ${key}.`)
+    }
+  }
+}
+
+/** Refuse malformed commands and remote plaintext transports before persisting. */
+export function validateMcpConfig(config: McpServerConfig): McpServerConfig {
+  if (!config || typeof config !== 'object') throw new Error('Invalid connector configuration.')
+  const name = String(config.name ?? '').trim()
+  if (!name || name.length > 100) throw new Error('Connector names must be 1–100 characters.')
+  if (!['stdio', 'http'].includes(config.transport)) throw new Error('Unsupported connector transport.')
+
+  if (config.transport === 'stdio') {
+    const command = String(config.command ?? '').trim()
+    if (!command || command.length > 4_096 || /[\0\r\n]/.test(command)) {
+      throw new Error('Enter one valid connector command.')
+    }
+    if (!Array.isArray(config.args) || config.args.length > 100
+      || config.args.some((arg) => typeof arg !== 'string' || arg.length > 8_192 || arg.includes('\0'))) {
+      throw new Error('Connector arguments are invalid or too large.')
+    }
+    validateMap(config.env, 'environment')
+  } else {
+    let url: URL
+    try { url = new URL(String(config.url ?? '')) } catch { throw new Error('Enter a valid connector URL.') }
+    if (url.username || url.password) throw new Error('Put credentials in headers, not the URL.')
+    const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+      throw new Error('Hosted connectors must use HTTPS. Plain HTTP is allowed only on this computer.')
+    }
+    validateMap(config.headers, 'header')
+  }
+  return { ...config, name }
 }
 
 /**
@@ -80,6 +151,7 @@ export class McpManager {
   }
 
   async save(config: McpServerConfig): Promise<void> {
+    config = validateMcpConfig(config)
     db.upsertMcpServer(config)
     await this.disconnect(config.id)
     this.servers.set(config.id, { config, client: null, tools: [], error: null })
@@ -97,15 +169,16 @@ export class McpManager {
     if (!live) return
     await this.disconnect(id)
     try {
+      live.config = validateMcpConfig(live.config)
       const client = new Client(
-        { name: 'kia', version: '0.1.0' },
+        { name: 'voyager', version: '0.1.0' },
         { capabilities: {} }
       )
       const transport = live.config.transport === 'stdio'
         ? new StdioClientTransport({
             command: live.config.command!,
             args: live.config.args ?? [],
-            env: { ...(process.env as Record<string, string>), ...(live.config.env ?? {}) }
+            env: { ...connectorBaseEnv(), ...(live.config.env ?? {}) }
           })
         : new StreamableHTTPClientTransport(new URL(live.config.url!), {
             requestInit: { headers: live.config.headers ?? {} }

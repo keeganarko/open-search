@@ -3,7 +3,7 @@ import type { PermissionAsk } from '@shared/types'
 
 /**
  * Wording lives here rather than in a shared table because the sheet is the
- * only place it is read, and a permission Open Search has no phrasing for should still
+ * only place it is read, and a permission Voyager has no phrasing for should still
  * produce a usable prompt rather than a blank one.
  */
 const LABEL: Record<string, string> = {
@@ -12,6 +12,9 @@ const LABEL: Record<string, string> = {
   notifications: 'send you notifications',
   'display-capture': 'share your screen',
   'clipboard-read': 'read your clipboard',
+  fullscreen: 'enter fullscreen',
+  pointerLock: 'capture your mouse pointer',
+  keyboardLock: 'capture keyboard shortcuts',
   midi: 'use your MIDI devices',
   midiSysex: 'send system messages to your MIDI devices',
   'idle-detection': 'know when you step away from the computer',
@@ -26,7 +29,8 @@ const LABEL: Record<string, string> = {
 
 const ICON: Record<string, string> = {
   media: '◉', geolocation: '⌖', notifications: '❐', 'display-capture': '▢',
-  'clipboard-read': '⎘', midi: '♪', midiSysex: '♪', 'idle-detection': '◔',
+  'clipboard-read': '⎘', fullscreen: '⛶', pointerLock: '↖', keyboardLock: '⌨',
+  midi: '♪', midiSysex: '♪', 'idle-detection': '◔',
   'window-management': '⊞', 'speaker-selection': '◈', 'storage-access': '⛁',
   'top-level-storage-access': '⛁', hid: '⌨', serial: '⇄', usb: '⏦'
 }
@@ -57,10 +61,10 @@ export default function Permission({ asks }: { asks: PermissionAsk[] }): JSX.Ele
   useEffect(() => {
     const h = (e: KeyboardEvent): void => {
       if (!ask) return
-      if (e.key === 'Enter') window.kia.permissions.respond(ask.id, true, remember)
+      if (e.key === 'Enter') window.voyager.permissions.respond(ask.id, true, remember)
       // Escape is a refusal, and deliberately not a remembered one — dismissing
       // a prompt should not silently block the site forever.
-      if (e.key === 'Escape') window.kia.permissions.respond(ask.id, false, false)
+      if (e.key === 'Escape') window.voyager.permissions.respond(ask.id, false, false)
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
@@ -68,7 +72,7 @@ export default function Permission({ asks }: { asks: PermissionAsk[] }): JSX.Ele
 
   if (!ask) return null
   const answer = (allowed: boolean): void =>
-    window.kia.permissions.respond(ask.id, allowed, remember)
+    window.voyager.permissions.respond(ask.id, allowed, remember)
 
   return (
     <div className="scrim top">

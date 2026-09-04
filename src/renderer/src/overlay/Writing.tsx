@@ -27,7 +27,7 @@ export default function Writing({ anchor, tabId, onClose }: {
     setBusy(true)
     setError(null)
     try {
-      const r = await window.kia.writing.request(text, tabId)
+      const r = await window.voyager.writing.request(text, tabId)
       setResult(r.rewritten)
     } catch (e) { setError(String((e as Error).message)) }
     setBusy(false)
@@ -64,11 +64,11 @@ export default function Writing({ anchor, tabId, onClose }: {
         {result && (
           <div className="row">
             <button className="btn primary" onClick={async () => {
-              await window.kia.writing.apply(result, true, tabId)
+              await window.voyager.writing.apply(result, true, tabId)
               onClose()
             }}>Replace selection</button>
             <button className="btn" onClick={async () => {
-              await window.kia.copy(result)
+              await window.voyager.copy(result)
               onClose()
             }}>Copy</button>
             <button className="btn" onClick={onClose}>Cancel</button>

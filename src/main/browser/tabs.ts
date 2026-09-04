@@ -3,10 +3,12 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
 import type { TabState, TabGroup, Profile } from '@shared/types'
-import { sessionFor } from './session'
-import { resolveInput, calendarEvent } from './urls'
+import { errorPageUrl, sessionFor } from './session'
+import { resolveInput, calendarEvent, isAllowedPageUrl } from './urls'
 import { getSettings, isExcluded } from '../store/settings'
 import * as db from '../store/db'
+import { callPage } from './pageBridge'
+import { blockedCount, resetCount, watchBlockedCounts } from './adblock'
 
 export interface Tab {
   id: string
@@ -17,18 +19,35 @@ export interface Tab {
   activatedAt: number | null
 }
 
-const NEW_TAB = 'kia://new-tab'
+const NEW_TAB = 'voyager://new-tab'
+const publicUrl = (url: string): string => {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol === 'voyager:' && parsed.hostname === 'new-tab') return ''
+    if (parsed.protocol === 'voyager:' && parsed.hostname === 'error') {
+      return parsed.searchParams.get('url') ?? ''
+    }
+  } catch { /* keep the raw value */ }
+  return url
+}
 
 export class TabManager extends EventEmitter {
   readonly tabs = new Map<string, Tab>()
   private order: string[] = []
   activeId: string | null = null
   groups: TabGroup[] = []
+  private readonly stopWatchingBlocked: () => void
 
   /** `windowKey` scopes session restore: two windows must not share a tab set. */
   constructor(private profile: Profile, readonly windowKey: string) {
     super()
     this.groups = db.listGroups(profile.id)
+    this.stopWatchingBlocked = watchBlockedCounts((webContentsId, count) => {
+      const tab = this.byWebContentsId(webContentsId)
+      if (!tab || tab.state.blockedRequests === count) return
+      tab.state.blockedRequests = count
+      this.changed()
+    })
   }
 
   get profileId(): string { return this.profile.id }
@@ -58,7 +77,14 @@ export class TabManager extends EventEmitter {
 
   // ——— lifecycle ———————————————————————————————————————————
 
-  create(opts: { url?: string; background?: boolean; groupId?: string | null; index?: number } = {}): Tab {
+  create(opts: {
+    url?: string
+    background?: boolean
+    groupId?: string | null
+    index?: number
+    /** Chromium loads popup contents itself so it can preserve window.opener. */
+    deferLoad?: boolean
+  } = {}): Tab {
     const id = randomUUID()
     const view = new WebContentsView({
       webPreferences: {
@@ -68,6 +94,8 @@ export class TabManager extends EventEmitter {
         sandbox: true,
         nodeIntegration: false,
         webSecurity: true,
+        safeDialogs: true,
+        safeDialogsMessage: 'This page has opened too many dialogs.',
         spellcheck: true,
         scrollBounce: true,
         // Chromium's built-in PDF viewer. Without this a PDF link downloads
@@ -77,7 +105,9 @@ export class TabManager extends EventEmitter {
     })
 
     const now = new Date().toISOString()
-    const url = opts.url ?? NEW_TAB
+    const url = opts.url?.trim()
+      ? resolveInput(opts.url, getSettings().search.engine)
+      : NEW_TAB
     const tab: Tab = {
       id, view, historyId: null, activatedAt: null,
       state: {
@@ -85,9 +115,10 @@ export class TabManager extends EventEmitter {
         // NEW_TAB is a sentinel for "load nothing", not an address. Reporting it
         // as the tab's URL made the omnibox read "new-tab" instead of showing
         // its placeholder, and left the chrome claiming a page that isn't there.
-        url: url === NEW_TAB ? '' : url,
+        url: publicUrl(url),
         title: 'New Tab', favicon: null, loading: false,
         canGoBack: false, canGoForward: false, audible: false, muted: false,
+        blockedRequests: 0,
         pinned: false, index: this.order.length, lastActiveAt: now, createdAt: now
       }
     }
@@ -97,20 +128,22 @@ export class TabManager extends EventEmitter {
     if (typeof opts.index === 'number') this.order.splice(opts.index, 0, id)
     else this.order.push(id)
 
-    if (url !== NEW_TAB) void view.webContents.loadURL(url)
+    if (!opts.deferLoad) void view.webContents.loadURL(url)
 
     if (!opts.background) this.activate(id)
     this.changed()
     return tab
   }
 
-  close(id: string): void {
+  close(id: string, remember = true): void {
     const tab = this.tabs.get(id)
     if (!tab) return
     this.recordDwell(tab)
+    if (remember) this.rememberClosed(tab)
     const idx = this.order.indexOf(id)
     this.order = this.order.filter((t) => t !== id)
     this.tabs.delete(id)
+    resetCount(tab.view.webContents.id)
     this.emit('detach', tab)
     // Destroying synchronously in a webContents event handler crashes; defer.
     setImmediate(() => {
@@ -183,8 +216,13 @@ export class TabManager extends EventEmitter {
   }
 
   reload(id: string, hard = false): void {
-    const wc = this.tabs.get(id)?.view.webContents
-    if (!wc) return
+    const tab = this.tabs.get(id)
+    const wc = tab?.view.webContents
+    if (!wc || !tab) return
+    if (wc.getURL().startsWith('voyager://error')) {
+      void wc.loadURL(tab.state.url).catch(() => {})
+      return
+    }
     hard ? wc.reloadIgnoringCache() : wc.reload()
   }
 
@@ -202,7 +240,7 @@ export class TabManager extends EventEmitter {
     const tab = this.tabs.get(id)
     if (!tab) return
     tab.state.pinned = pinned
-    // Pinned tabs live at the front of the strip, like every other browser.
+    // Keep pinned tabs together at the front of the strip.
     this.order = [
       ...this.order.filter((i) => this.tabs.get(i)?.state.pinned),
       ...this.order.filter((i) => !this.tabs.get(i)?.state.pinned)
@@ -211,8 +249,25 @@ export class TabManager extends EventEmitter {
   }
 
   setZoom(id: string, level: number): void {
-    const wc = this.tabs.get(id)?.view.webContents
-    if (wc) wc.setZoomLevel(Math.max(-5, Math.min(5, level)))
+    const tab = this.tabs.get(id)
+    if (!tab) return
+    const clamped = Math.max(-5, Math.min(5, level))
+    tab.view.webContents.setZoomLevel(clamped)
+    db.saveZoom(this.profile.id, tab.state.url, clamped)
+  }
+
+  reopenClosed(): Tab | null {
+    const saved = db.popClosedTab(this.profile.id, this.windowKey)
+    if (!saved) return null
+    const index = Math.max(0, Math.min(saved.activeIndex, saved.entries.length - 1))
+    const url = saved.entries[index]?.url
+    if (!url) return null
+    const tab = this.create({ url, groupId: saved.groupId, deferLoad: true })
+    void tab.view.webContents.navigationHistory.restore({
+      entries: saved.entries,
+      index
+    }).catch(() => tab.view.webContents.loadURL(url).catch(() => {}))
+    return tab
   }
 
   // ——— groups ——————————————————————————————————————————————
@@ -256,7 +311,7 @@ export class TabManager extends EventEmitter {
   }
 
   /**
-   * Dia's meeting behaviour: when a calendar event is open, every tab opened
+   * Meeting workflow: when a calendar event is open, every tab opened
    * afterwards joins a group named for that event. The group is armed by the
    * calendar tab and stays armed while it is open.
    */
@@ -317,7 +372,8 @@ export class TabManager extends EventEmitter {
   }
 
   destroy(): void {
-    for (const id of [...this.order]) this.close(id)
+    this.stopWatchingBlocked()
+    for (const id of [...this.order]) this.close(id, false)
   }
 
   // ——— internals ————————————————————————————————————————————
@@ -327,6 +383,23 @@ export class TabManager extends EventEmitter {
       db.setDwell(tab.historyId, Date.now() - tab.activatedAt)
     }
     tab.activatedAt = null
+  }
+
+  private rememberClosed(tab: Tab): void {
+    try {
+      const history = tab.view.webContents.navigationHistory
+      const activeIndex = history.getActiveIndex()
+      const safe = history.getAllEntries()
+        .map((entry, index) => ({ entry, index }))
+        .filter(({ entry }) => /^https?:/i.test(entry.url))
+      if (!safe.length) return
+      const restoredIndex = safe.findIndex(({ index }) => index === activeIndex)
+      db.rememberClosedTab(this.profile.id, this.windowKey, {
+        entries: safe.map(({ entry }) => ({ title: entry.title, url: entry.url })),
+        activeIndex: restoredIndex >= 0 ? restoredIndex : safe.length - 1,
+        groupId: tab.state.groupId
+      })
+    } catch { /* a crashed renderer has no navigation stack to preserve */ }
   }
 
   private changed(): void {
@@ -360,22 +433,34 @@ export class TabManager extends EventEmitter {
     wc.on('did-start-loading', () => { tab.state.loading = true; this.changed() })
     wc.on('did-stop-loading', () => { tab.state.loading = false; sync() })
 
+    // Pages may try to hand their top frame to an OS handler, local file, or an
+    // active URL scheme. Keep the main-frame policy at every navigation edge.
+    wc.on('will-navigate', (event) => {
+      if (!isAllowedPageUrl(event.url)) event.preventDefault()
+    })
+    wc.on('will-redirect', (event) => {
+      if (!isAllowedPageUrl(event.url)) event.preventDefault()
+    })
+
     wc.on('did-start-navigation', (details) => {
       if (!details.isMainFrame) return
+      resetCount(wc.id)
+      tab.state.blockedRequests = blockedCount(wc.id)
       this.recordDwell(tab)
       tab.historyId = null
-      tab.state.url = details.url
+      tab.state.url = publicUrl(details.url)
       this.changed()
     })
 
     wc.on('did-navigate', (_e, url) => {
-      tab.state.url = url
+      tab.state.url = publicUrl(url)
+      wc.setZoomLevel(db.zoomFor(this.profile.id, url))
       this.inheritMeeting(tab)
       sync()
     })
 
     wc.on('did-navigate-in-page', (_e, url, isMainFrame) => {
-      if (isMainFrame) { tab.state.url = url; sync() }
+      if (isMainFrame) { tab.state.url = publicUrl(url); sync() }
     })
 
     wc.on('did-finish-load', () => {
@@ -388,6 +473,9 @@ export class TabManager extends EventEmitter {
       tab.state.loading = false
       this.emit('load-failed', tab, { code, desc, url })
       this.changed()
+      if (!url.startsWith('voyager://')) {
+        void wc.loadURL(errorPageUrl(url, code, desc)).catch(() => {})
+      }
     })
 
     wc.on('audio-state-changed', (event) => {
@@ -401,9 +489,15 @@ export class TabManager extends EventEmitter {
 
     // Anything that would open a window becomes a tab next to its opener.
     wc.setWindowOpenHandler(({ url, disposition }) => {
+      if (!isAllowedPageUrl(url)) return { action: 'deny' }
       const background = disposition === 'background-tab'
-      this.create({ url, background, index: this.order.indexOf(tab.id) + 1, groupId: tab.state.groupId })
-      return { action: 'deny' }
+      return {
+        action: 'allow',
+        createWindow: () => this.create({
+          url, background, index: this.order.indexOf(tab.id) + 1,
+          groupId: tab.state.groupId, deferLoad: true
+        }).view.webContents
+      }
     })
 
     wc.on('context-menu', (_e, params) => {
@@ -420,13 +514,14 @@ export class TabManager extends EventEmitter {
   private async recordVisit(tab: Tab): Promise<void> {
     const settings = getSettings()
     const url = tab.state.url
+    if (tab.view.webContents.getURL().startsWith('voyager://')) return
     if (!url || url === NEW_TAB || url.startsWith('about:')) return
     if (settings.privacy.paused || isExcluded(url, settings)) return
 
     let excerpt: string | null = null
     try {
-      const extracted = await tab.view.webContents.executeJavaScript(
-        'window.__kia?.extract?.() ?? null', true
+      const extracted = await callPage<{ text?: string; title?: string }>(
+        tab.view.webContents, 'extract'
       )
       if (extracted?.text) excerpt = String(extracted.text).slice(0, 4000)
       if (extracted?.title) tab.state.title = extracted.title

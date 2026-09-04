@@ -6,8 +6,9 @@
  * here; the rest exists only so the import resolves.
  */
 export const app = {
-  getPath: (name: string) => `/tmp/open-search-test/${name}`,
-  getName: () => 'Open Search',
+  getPath: (name: string) => `/tmp/voyager-test/${name}`,
+  getAppPath: () => process.cwd(),
+  getName: () => 'Voyager',
   getVersion: () => '0.0.0-test',
   setName: () => {},
   isPackaged: false,

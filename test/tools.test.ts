@@ -27,9 +27,15 @@ describe('built-in tools', () => {
       expect(byName.get(n)?.actionClass, n).toBe('read')
   })
 
-  it('classifies the tab and memory changes as locally reversible', () => {
-    for (const n of ['open_tab', 'close_tab', 'group_tabs', 'split_view', 'remember', 'forget', 'bookmark'])
+  it('classifies reversible tab and memory changes as locally reversible', () => {
+    for (const n of ['open_tab', 'close_tab', 'group_tabs', 'split_view', 'remember', 'bookmark'])
       expect(byName.get(n)?.actionClass, n).toBe('local_reversible')
+  })
+
+  it('always asks before irreversible memory deletion', () => {
+    const forget = byName.get('forget')
+    expect(forget?.actionClass).toBe('sensitive')
+    expect(requiresApproval(forget!.actionClass, DEFAULT_SETTINGS.approvals.auto)).toBe(true)
   })
 
   it('stops before typing into a page — drafting is not sending', () => {
@@ -40,9 +46,9 @@ describe('built-in tools', () => {
     expect(requiresApproval(t!.actionClass, DEFAULT_SETTINGS.approvals.auto)).toBe(true)
   })
 
-  it('ships nothing that would ask on every call', () => {
-    // Nothing built in is `sensitive`; that class is for connector tools.
-    expect(tools.some((t) => t.actionClass === 'sensitive')).toBe(false)
+  it('uses sensitive only for the irreversible built-in', () => {
+    expect(tools.filter((t) => t.actionClass === 'sensitive').map((t) => t.definition.name))
+      .toEqual(['forget'])
   })
 
   it('auto-approves reads and local changes out of the box, and nothing else', () => {

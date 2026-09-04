@@ -29,7 +29,7 @@ export default function SplitHandles({ split }: { split: SplitLayout }): JSX.Ele
     }
     const up = (): void => {
       if (drag.current) {
-        window.kia.layout.ratios(ratios)
+        window.voyager.layout.ratios(ratios)
         drag.current = null
         document.body.style.cursor = ''
       }

@@ -12,7 +12,7 @@ export default function Tidy({ onClose, toast }: {
   const [picked, setPicked] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    void window.kia.tabs.idle(days).then((r) => {
+    void window.voyager.tabs.idle(days).then((r) => {
       setRows(r)
       setPicked(new Set(r.map((t) => t.id)))
     })
@@ -32,7 +32,7 @@ export default function Tidy({ onClose, toast }: {
           </select>
           <button className="btn danger" disabled={picked.size === 0}
             onClick={() => {
-              picked.forEach((id) => window.kia.tabs.close(id))
+              picked.forEach((id) => window.voyager.tabs.close(id))
               toast(`Closed ${picked.size} tab${picked.size > 1 ? 's' : ''}.`)
               onClose()
             }}>
@@ -59,7 +59,7 @@ export default function Tidy({ onClose, toast }: {
           </div>
           <span className="when">{relTime(t.lastActiveAt)}</span>
           <button className="btn" onClick={() => {
-            window.kia.bookmarks.add(t.url, t.title)
+            window.voyager.bookmarks.add(t.url, t.title)
             toast('Bookmarked.')
           }}>Keep</button>
         </div>

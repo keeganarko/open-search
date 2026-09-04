@@ -6,6 +6,7 @@ import Composer from './Composer'
 import { relTime } from '../state'
 
 interface Props {
+  profileId: string
   width: number
   onPanel: (p: string | null) => void
   toast: (m: string, kind?: 'info' | 'error') => void
@@ -17,7 +18,7 @@ const blank = (id: string, conversationId: string): ChatMessage => ({
   createdAt: new Date().toISOString()
 })
 
-export default function Sidebar({ width, onPanel, toast }: Props): JSX.Element {
+export default function Sidebar({ profileId, width, onPanel, toast }: Props): JSX.Element {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -30,9 +31,22 @@ export default function Sidebar({ width, onPanel, toast }: Props): JSX.Element {
   const pinned = useRef(true)
 
   const refreshConversations = useCallback(() => {
-    void window.kia.chat.conversations().then(setConversations)
+    void window.voyager.chat.conversations().then(setConversations)
   }, [])
   useEffect(refreshConversations, [refreshConversations])
+
+  // Conversation ids are profile-owned. A profile switch starts a fresh view
+  // instead of letting the next message continue the old profile's thread.
+  useEffect(() => {
+    setConversationId(null)
+    setMessages([])
+    setConversations([])
+    setShowList(false)
+    setStreamingId(null)
+    setAttachments([])
+    setSkill(null)
+    refreshConversations()
+  }, [profileId, refreshConversations])
 
   // Keep the view pinned to the bottom unless the user has scrolled up.
   useEffect(() => {
@@ -40,7 +54,7 @@ export default function Sidebar({ width, onPanel, toast }: Props): JSX.Element {
     if (el && pinned.current) el.scrollTop = el.scrollHeight
   }, [messages])
 
-  useEffect(() => window.kia.chat.onEvent((e: StreamEvent) => {
+  useEffect(() => window.voyager.chat.onEvent((e: StreamEvent) => {
     setMessages((prev) => {
       const next = [...prev]
       const idx = next.findIndex((m) => m.id === e.messageId)
@@ -83,13 +97,13 @@ export default function Sidebar({ width, onPanel, toast }: Props): JSX.Element {
   }), [refreshConversations])
 
   // Menu / context-menu asks arrive here.
-  useEffect(() => window.kia.onAsk(async ({ prompt, skill: slug }) => {
+  useEffect(() => window.voyager.onAsk(async ({ prompt, skill: slug }) => {
     let s: Skill | null = null
-    if (slug) s = (await window.kia.skills.list()).find((x) => x.slug === slug) ?? null
+    if (slug) s = (await window.voyager.skills.list()).find((x) => x.slug === slug) ?? null
     send(prompt, s, [])
   }), [conversationId])
 
-  useEffect(() => window.kia.onFocus('composer', () => setFocusToken((t) => t + 1)), [])
+  useEffect(() => window.voyager.onFocus('composer', () => setFocusToken((t) => t + 1)), [])
 
   const send = (text: string, useSkill = skill, atts = attachments): void => {
     const id = `local-${Date.now()}`
@@ -99,7 +113,7 @@ export default function Sidebar({ width, onPanel, toast }: Props): JSX.Element {
       error: null, createdAt: new Date().toISOString()
     }])
     pinned.current = true
-    void window.kia.chat
+    void window.voyager.chat
       .send({ conversationId, text, attachments: atts, skillSlug: useSkill?.slug })
       .catch((err: Error) => toast(String(err.message ?? err), 'error'))
     setAttachments([])
@@ -108,7 +122,7 @@ export default function Sidebar({ width, onPanel, toast }: Props): JSX.Element {
 
   const open = async (id: string): Promise<void> => {
     setConversationId(id)
-    setMessages(await window.kia.chat.history(id))
+    setMessages(await window.voyager.chat.history(id))
     setShowList(false)
   }
 
@@ -122,11 +136,11 @@ export default function Sidebar({ width, onPanel, toast }: Props): JSX.Element {
   return (
     <div className="sidebar" style={{ width }}>
       <div className="sidebar-head">
-        <span className="title">Open Search</span>
+        <span className="title">Voyager</span>
         <button className="iconbtn" title="Chat history" onClick={() => setShowList((s) => !s)}>≡</button>
         <button className="iconbtn" title="New chat" onClick={newChat}>+</button>
         <button className="iconbtn" title="Skills" onClick={() => onPanel('skills')}>✧</button>
-        <button className="iconbtn" title="Settings (⌘,)" onClick={() => onPanel('settings')}>⚙</button>
+        <button className="iconbtn" title={`Settings (${window.voyager.platform === 'darwin' ? '⌘,' : 'Ctrl+,'})`} onClick={() => onPanel('settings')}>⚙</button>
       </div>
 
       {showList ? (
@@ -141,7 +155,7 @@ export default function Sidebar({ width, onPanel, toast }: Props): JSX.Element {
               </button>
               <button className="iconbtn" title="Delete chat"
                 onClick={async () => {
-                  setConversations(await window.kia.chat.remove(c.id))
+                  setConversations(await window.voyager.chat.remove(c.id))
                   if (c.id === conversationId) newChat()
                 }}>×</button>
             </div>
@@ -168,7 +182,7 @@ export default function Sidebar({ width, onPanel, toast }: Props): JSX.Element {
               msg={m}
               streaming={m.id === streamingId}
               onApprove={(stepId, ok) => {
-                window.kia.chat.approve(stepId, ok)
+                window.voyager.chat.approve(stepId, ok)
                 setMessages((prev) => prev.map((x) => ({
                   ...x,
                   steps: x.steps.map((s) => s.id === stepId
@@ -187,7 +201,7 @@ export default function Sidebar({ width, onPanel, toast }: Props): JSX.Element {
         skill={skill}
         setSkill={setSkill}
         onSend={(t) => send(t)}
-        onStop={() => streamingId && window.kia.chat.stop(streamingId)}
+        onStop={() => streamingId && window.voyager.chat.stop(streamingId)}
         focusToken={focusToken}
       />
     </div>

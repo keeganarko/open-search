@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { app } from 'electron'
+import { app, safeStorage } from 'electron'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
@@ -11,7 +11,7 @@ let db: Database.Database
 
 export function openDb(): Database.Database {
   if (db) return db
-  db = new Database(join(app.getPath('userData'), 'kia.db'))
+  db = new Database(join(app.getPath('userData'), 'voyager.db'))
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   migrate()
@@ -48,6 +48,21 @@ function migrate(): void {
       -- Which window these belong to. Restore is per window, not per profile,
       -- or a second window would re-open the first one's tabs.
       window_key TEXT NOT NULL DEFAULT 'w1'
+    );
+
+    -- Recently closed navigation stacks. Page state is deliberately omitted:
+    -- Chromium pageState can contain form values, which do not belong in SQLite.
+    CREATE TABLE IF NOT EXISTS closed_tabs (
+      id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, window_key TEXT NOT NULL,
+      entries_json TEXT NOT NULL, active_index INTEGER NOT NULL,
+      group_id TEXT, closed_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS closed_tabs_recent
+      ON closed_tabs(profile_id, window_key, closed_at DESC);
+
+    CREATE TABLE IF NOT EXISTS zoom_levels (
+      profile_id TEXT NOT NULL, origin TEXT NOT NULL, level REAL NOT NULL,
+      PRIMARY KEY(profile_id, origin)
     );
 
     CREATE TABLE IF NOT EXISTS history (
@@ -183,7 +198,7 @@ export function listProfiles(): Profile[] {
 export function createProfile(name: string, color: string, persona = ''): Profile {
   const id = randomUUID()
   const p: Profile = {
-    id, name, color, partition: `persist:kia-${id}`, persona,
+    id, name, color, partition: `persist:voyager-${id}`, persona,
     createdAt: new Date().toISOString()
   }
   db.prepare(
@@ -200,7 +215,22 @@ export function updateProfile(id: string, patch: Partial<Profile>): void {
 }
 
 export function deleteProfile(id: string): void {
-  db.prepare('DELETE FROM profiles WHERE id=?').run(id)
+  // Most of the original schema predates foreign keys. Keep this explicit even
+  // after adding constraints so old databases and new databases erase exactly
+  // the same profile-owned data, including saved passwords and chat messages.
+  const erase = db.transaction((profileId: string) => {
+    db.prepare(`DELETE FROM messages WHERE conversation_id IN
+      (SELECT id FROM conversations WHERE profile_id=?)`).run(profileId)
+    for (const table of [
+      'conversations', 'history', 'memory', 'bookmarks', 'briefs',
+      'site_permissions', 'logins', 'closed_tabs', 'zoom_levels',
+      'saved_tabs', 'tab_groups'
+    ]) {
+      db.prepare(`DELETE FROM ${table} WHERE profile_id=?`).run(profileId)
+    }
+    db.prepare('DELETE FROM profiles WHERE id=?').run(profileId)
+  })
+  erase(id)
 }
 
 export function ensureDefaultProfile(): Profile {
@@ -285,6 +315,73 @@ export function dropSavedWindow(profileId: string, windowKey: string): void {
     .run(profileId, windowKey)
 }
 
+export interface ClosedTab {
+  entries: { title: string; url: string }[]
+  activeIndex: number
+  groupId: string | null
+}
+
+export function rememberClosedTab(
+  profileId: string,
+  windowKey: string,
+  tab: ClosedTab
+): void {
+  const tx = db.transaction(() => {
+    db.prepare(`INSERT INTO closed_tabs
+      (id,profile_id,window_key,entries_json,active_index,group_id,closed_at)
+      VALUES(?,?,?,?,?,?,?)`)
+      .run(randomUUID(), profileId, windowKey, JSON.stringify(tab.entries),
+        tab.activeIndex, tab.groupId, new Date().toISOString())
+    db.prepare(`DELETE FROM closed_tabs WHERE id IN (
+      SELECT id FROM closed_tabs WHERE profile_id=? AND window_key=?
+      ORDER BY closed_at DESC LIMIT -1 OFFSET 25
+    )`).run(profileId, windowKey)
+  })
+  tx()
+}
+
+export function popClosedTab(profileId: string, windowKey: string): ClosedTab | null {
+  const row = db.prepare(`SELECT id, entries_json, active_index, group_id
+    FROM closed_tabs WHERE profile_id=? AND window_key=?
+    ORDER BY closed_at DESC LIMIT 1`).get(profileId, windowKey) as any
+  if (!row) return null
+  db.prepare('DELETE FROM closed_tabs WHERE id=?').run(row.id)
+  try {
+    const entries = JSON.parse(row.entries_json)
+    if (!Array.isArray(entries) || !entries.length) return null
+    return { entries, activeIndex: row.active_index, groupId: row.group_id }
+  } catch {
+    return null
+  }
+}
+
+function zoomOrigin(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.origin : null
+  } catch { return null }
+}
+
+export function zoomFor(profileId: string, url: string): number {
+  const origin = zoomOrigin(url)
+  if (!origin) return 0
+  const row = db.prepare('SELECT level FROM zoom_levels WHERE profile_id=? AND origin=?')
+    .get(profileId, origin) as { level: number } | undefined
+  return row?.level ?? 0
+}
+
+export function saveZoom(profileId: string, url: string, level: number): void {
+  const origin = zoomOrigin(url)
+  if (!origin) return
+  if (level === 0) {
+    db.prepare('DELETE FROM zoom_levels WHERE profile_id=? AND origin=?').run(profileId, origin)
+    return
+  }
+  db.prepare(`INSERT INTO zoom_levels(profile_id,origin,level) VALUES(?,?,?)
+    ON CONFLICT(profile_id,origin) DO UPDATE SET level=excluded.level`)
+    .run(profileId, origin, level)
+}
+
 // ——— history ———————————————————————————————————————————————
 
 export function addHistory(
@@ -350,9 +447,12 @@ export function pruneHistory(retentionDays: number): number {
   return db.prepare('DELETE FROM history WHERE visited_at < ?').run(cutoff).changes
 }
 
-export function forgetDomain(domain: string): void {
-  db.prepare("DELETE FROM history WHERE url LIKE ?").run(`%${domain}%`)
-  db.prepare("DELETE FROM memory WHERE source LIKE ?").run(`%${domain}%`)
+export function forgetDomain(profileId: string, domain: string): void {
+  const escaped = domain.replace(/[\\%_]/g, '\\$&')
+  db.prepare("DELETE FROM history WHERE profile_id=? AND url LIKE ? ESCAPE '\\'")
+    .run(profileId, `%${escaped}%`)
+  db.prepare("DELETE FROM memory WHERE profile_id=? AND source LIKE ? ESCAPE '\\'")
+    .run(profileId, `%${escaped}%`)
 }
 
 // ——— memory ————————————————————————————————————————————————
@@ -528,14 +628,67 @@ export function deleteBookmark(id: string): void {
 
 // ——— mcp ———————————————————————————————————————————————————
 
+const CONNECTOR_SECRET_PREFIX = 'voyager-secret-v1:'
+
+function protectConnectorSecrets(c: McpServerConfig): McpServerConfig {
+  const values = [...Object.values(c.env ?? {}), ...Object.values(c.headers ?? {})]
+  if (values.some(Boolean) && !safeStorage.isEncryptionAvailable()) {
+    throw new Error('Secure credential storage is unavailable. Voyager refused to save connector secrets.')
+  }
+  const protect = (source: Record<string, string> | undefined): Record<string, string> | undefined => {
+    if (!source) return undefined
+    return Object.fromEntries(Object.entries(source).map(([key, value]) => [
+      key,
+      value ? CONNECTOR_SECRET_PREFIX + safeStorage.encryptString(value).toString('base64') : ''
+    ]))
+  }
+  return { ...c, env: protect(c.env), headers: protect(c.headers) }
+}
+
+function revealConnectorSecrets(c: McpServerConfig): { config: McpServerConfig; legacy: boolean } {
+  let legacy = false
+  const reveal = (source: Record<string, string> | undefined): Record<string, string> | undefined => {
+    if (!source) return undefined
+    return Object.fromEntries(Object.entries(source).map(([key, value]) => {
+      if (!value.startsWith(CONNECTOR_SECRET_PREFIX)) {
+        if (value) legacy = true
+        return [key, value]
+      }
+      try {
+        return [key, safeStorage.decryptString(
+          Buffer.from(value.slice(CONNECTOR_SECRET_PREFIX.length), 'base64')
+        )]
+      } catch {
+        return [key, '']
+      }
+    }))
+  }
+  return { config: { ...c, env: reveal(c.env), headers: reveal(c.headers) }, legacy }
+}
+
 export function listMcpServers(): McpServerConfig[] {
-  return (db.prepare('SELECT config_json FROM mcp_servers').all() as any[])
-    .map((r) => JSON.parse(r.config_json) as McpServerConfig)
+  const configs: McpServerConfig[] = []
+  for (const row of db.prepare('SELECT config_json FROM mcp_servers').all() as { config_json: string }[]) {
+    try {
+      const { config, legacy } = revealConnectorSecrets(
+        JSON.parse(row.config_json) as McpServerConfig
+      )
+      configs.push(config)
+      // One-way migration from builds that stored connector tokens as JSON.
+      if (legacy && safeStorage.isEncryptionAvailable()) {
+        const protectedConfig = protectConnectorSecrets(config)
+        db.prepare('UPDATE mcp_servers SET config_json=? WHERE id=?')
+          .run(JSON.stringify(protectedConfig), config.id)
+      }
+    } catch { /* ignore a corrupt connector row; it cannot be run safely */ }
+  }
+  return configs
 }
 
 export function upsertMcpServer(c: McpServerConfig): void {
+  const protectedConfig = protectConnectorSecrets(c)
   db.prepare('INSERT INTO mcp_servers(id,config_json) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET config_json=excluded.config_json')
-    .run(c.id, JSON.stringify(c))
+    .run(c.id, JSON.stringify(protectedConfig))
 }
 
 export function deleteMcpServer(id: string): void {

@@ -1,4 +1,4 @@
-# Open Search — working notes
+# Voyager — working notes
 
 Read `README.md` first; it is the map. This file is the stuff that only matters
 when you are changing the code.
@@ -7,8 +7,8 @@ when you are changing the code.
 
 - **`src/shared/types.ts` and `src/shared/ipc.ts` are the contract.** Any channel
   with a reply goes in the `IPC` table before you use it, so main and renderer
-  cannot drift on a name. The exception is the one-way `kia:open-<panel>` /
-  `kia:focus-<target>` family, derived from the panel name at both ends. Main and
+  cannot drift on a name. The exception is the one-way `voyager:open-<panel>` /
+  `voyager:focus-<target>` family, derived from the panel name at both ends. Main and
   renderer compile against the same types; drift shows up as a typecheck failure,
   not a runtime bug.
 - **Main and preload are CJS.** `package.json` has no `"type": "module"` on
@@ -46,7 +46,7 @@ when you are changing the code.
 - The overlay is added to `contentView` **last** so it paints above tab views;
   `layout()` inserts tab views at `overlayIndex()` to keep it that way.
 - Session restore is per **window**, not per profile: `saved_tabs.window_key`
-  scopes it, and `KiaWindow.key` is what a window carries across a quit. Two
+  scopes it, and `VoyagerWindow.key` is what a window carries across a quit. Two
   windows on one profile would otherwise re-open each other's tabs and then
   overwrite them. Closing a window by hand drops its key; quitting keeps it.
 - IPC resolves the sending window from `event.sender`, carried through an
@@ -70,19 +70,12 @@ when you are changing the code.
   macOS traffic lights are inset into — does exactly that, and it has to stay
   *after* `.rail > *` in the stylesheet because the two have equal specificity.
   This has already been shipped broken once.
-- `app.getPath('userData')` **creates** the directory. A migration that renames
-  the profile directory has to build the path from `appData` instead, run at
-  module load (not `whenReady`), and delete the three `Singleton*` symlinks it
-  moves — a stale one makes `requestSingleInstanceLock()` return false and the
-  app quits silently with no log.
-- **The renderer cannot `fetch` its own files.** In production the chrome loads
-  with `loadFile`, so its origin is `file://` and Chromium treats a
-  same-directory `fetch` as cross-origin. It works under `electron-vite dev`
-  (http://localhost) and fails silently once packaged. Anything the renderer
-  needs as bytes comes from main over IPC — see the opening audio in `ipc.ts`.
-- `app.getAppPath()` is not the project root. Electron sets it to whatever it
-  was pointed at: the root under `electron .`, but `out/main` when handed the
-  built script. Resolve unpackaged asset paths from `__dirname` instead.
+- `app.getPath('userData')` can create the directory as a side effect. Use it
+  deliberately and only after the application name has been set.
+- **The renderer cannot `fetch` sibling files in production.** The app UI loads
+  with `loadFile`, so Chromium treats a same-directory fetch from its opaque
+  origin as cross-origin. Prefer bundled imports, main-process IPC, or procedural
+  assets such as the startup signature.
 - `before-quit` persists every window and closes the database, and only then do
   the windows actually close. Anything in a `closing` handler that touches the
   store has to bail out once cleanup has run, or it throws on every quit.
@@ -110,7 +103,7 @@ empty hostname.
 
 ## Adding a tool
 
-`src/main/agent/tools.ts`. A `KiaTool` is a definition, an `actionClass`, a
+`src/main/agent/tools.ts`. An `VoyagerTool` is a definition, an `actionClass`, a
 `describe` for the approval sheet, and a `run`. The class is not decoration — it
 is what decides whether the engine stops and asks. If a tool can cause an effect
 someone else can see, it is at least `external_write`.

@@ -27,7 +27,7 @@ function inline(text: string, keyBase: string): ReactNode[] {
         <a
           key={key}
           href={href}
-          onClick={(e) => { e.preventDefault(); window.kia.openExternal(href) }}
+          onClick={(e) => { e.preventDefault(); window.voyager.openExternal(href) }}
         >{label}</a>
       )
     }

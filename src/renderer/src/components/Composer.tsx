@@ -44,11 +44,11 @@ export default function Composer({
     if (at >= 0 && !/\s/.test(before.slice(at + 1))) {
       setAc({ kind: 'at', from: at })
       setSel(0)
-      void window.kia.page.candidates().then(setCandidates)
+      void window.voyager.page.candidates().then(setCandidates)
     } else if (slash === 0) {
       setAc({ kind: 'slash', from: 0 })
       setSel(0)
-      void window.kia.skills.list().then(setSkills)
+      void window.voyager.skills.list().then(setSkills)
     } else {
       setAc(null)
     }
@@ -109,13 +109,14 @@ export default function Composer({
           {skill && (
             <span className="chip skill">
               <span className="t">/{skill.slug}</span>
-              <button className="x" onClick={() => setSkill(null)}>×</button>
+              <button className="x" title="Remove skill" aria-label="Remove skill"
+                onClick={() => setSkill(null)}>×</button>
             </span>
           )}
           {attachments.map((a) => (
             <span className="chip" key={`${a.type}:${a.id}`}>
               <span className="t">{a.label}</span>
-              <button className="x"
+              <button className="x" title={`Remove ${a.label}`} aria-label={`Remove ${a.label}`}
                 onClick={() => setAttachments(attachments.filter((x) => x.id !== a.id || x.type !== a.type))}
               >×</button>
             </span>

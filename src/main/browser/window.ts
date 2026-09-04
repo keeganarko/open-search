@@ -1,5 +1,5 @@
 import {
-  BaseWindow, WebContentsView, nativeTheme, type Rectangle, type WebContents
+  app, BaseWindow, WebContentsView, nativeTheme, type Rectangle, type WebContents
 } from 'electron'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
@@ -10,7 +10,7 @@ import * as db from '../store/db'
 
 /** Chrome geometry. The renderer mirrors these in CSS custom properties. */
 export const CHROME = {
-  /** The left rail: pinned tiles, the omnibox, the tab list. Dia's shape. */
+  /** The left rail: pinned tiles, the omnibox, and the tab list. */
   rail: 240,
   /**
    * Height of the strip kept clear above page content. macOS insets its traffic
@@ -57,7 +57,7 @@ export type OverlayMode =
   | { kind: 'screenPick'; origin: string; sources: ScreenSource[] }
   | { kind: 'savePassword'; origin: string; username: string; existing: boolean }
 
-export class KiaWindow extends EventEmitter {
+export class VoyagerWindow extends EventEmitter {
   readonly window: BaseWindow
   readonly chrome: WebContentsView
   readonly overlay: WebContentsView
@@ -77,7 +77,9 @@ export class KiaWindow extends EventEmitter {
   private fullscreenTabId: string | null = null
   /** While the opening story runs, the chrome renderer has the window alone. */
   private splash = false
+  private splashTimer: ReturnType<typeof setTimeout> | null = null
   private attached = new Set<string>()
+  private readonly themeUpdated: () => void
 
   constructor(profile: Profile, key: string) {
     super()
@@ -108,8 +110,9 @@ export class KiaWindow extends EventEmitter {
     this.chrome = new WebContentsView({
       webPreferences: {
         preload: join(__dirname, '../preload/chrome.js'),
-        contextIsolation: true, sandbox: false, nodeIntegration: false,
-        // The opening theme has to start before anyone has clicked anything.
+        contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true,
+        devTools: !app.isPackaged,
+        // The opening signature has to start before anyone has clicked anything.
         // Tab views keep Chromium's default, so pages still cannot autoplay.
         autoplayPolicy: 'no-user-gesture-required'
       }
@@ -119,7 +122,9 @@ export class KiaWindow extends EventEmitter {
     this.overlay = new WebContentsView({
       webPreferences: {
         preload: join(__dirname, '../preload/chrome.js'),
-        contextIsolation: true, sandbox: false, nodeIntegration: false, transparent: true
+        contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true,
+        devTools: !app.isPackaged,
+        transparent: true
       }
     })
     this.overlay.setBackgroundColor('#00000000')
@@ -134,9 +139,8 @@ export class KiaWindow extends EventEmitter {
     // Whether these tabs are kept for next launch depends on why the window is
     // closing, which only the app knows. It decides; this just announces.
     this.window.on('close', () => { this.emit('closing') })
-    this.window.on('closed', () => { this.emit('closed') })
-
-    nativeTheme.on('updated', () => {
+    this.themeUpdated = () => {
+      if (this.window.isDestroyed()) return
       const isDark = nativeTheme.shouldUseDarkColors
       this.window.setBackgroundColor(isDark ? '#141416' : '#f6f6f7')
       if (!mac) {
@@ -146,16 +150,42 @@ export class KiaWindow extends EventEmitter {
           symbolColor: isDark ? '#e8e6e1' : '#1b1a17'
         })
       }
+    }
+    nativeTheme.on('updated', this.themeUpdated)
+    this.window.on('closed', () => {
+      nativeTheme.removeListener('updated', this.themeUpdated)
+      if (this.splashTimer) clearTimeout(this.splashTimer)
+      this.splashTimer = null
+      this.emit('closed')
     })
   }
 
-  async load(rendererUrl: string | null, indexFile: string, overlayFile: string): Promise<void> {
+  async load(rendererUrl: string | null): Promise<void> {
+    const base = rendererUrl?.replace(/\/$/, '') ?? 'voyager-app://ui'
+    const allowedOrigin = new URL(base).origin
+    const secureUi = (url: string): boolean => {
+      try {
+        const parsed = new URL(url)
+        return rendererUrl
+          ? parsed.origin === allowedOrigin && ['http:', 'https:'].includes(parsed.protocol)
+          : parsed.protocol === 'voyager-app:' && parsed.hostname === 'ui'
+      } catch {
+        return false
+      }
+    }
+    for (const wc of [this.chrome.webContents, this.overlay.webContents]) {
+      wc.on('will-navigate', (event, url) => {
+        if (!secureUi(url)) event.preventDefault()
+      })
+      wc.setWindowOpenHandler(() => ({ action: 'deny' }))
+    }
+
     if (rendererUrl) {
       await this.chrome.webContents.loadURL(rendererUrl)
-      await this.overlay.webContents.loadURL(`${rendererUrl.replace(/\/$/, '')}/overlay.html`)
+      await this.overlay.webContents.loadURL(`${base}/overlay.html`)
     } else {
-      await this.chrome.webContents.loadFile(indexFile)
-      await this.overlay.webContents.loadFile(overlayFile)
+      await this.chrome.webContents.loadURL(`${base}/index.html`)
+      await this.overlay.webContents.loadURL(`${base}/overlay.html`)
     }
     // Overlay is added last so it paints above tab content.
     this.window.contentView.addChildView(this.overlay)
@@ -180,6 +210,7 @@ export class KiaWindow extends EventEmitter {
   }
 
   layout(): void {
+    if (this.window.isDestroyed()) return
     const [w, h] = this.window.getContentSize()
     this.chrome.setBounds({ x: 0, y: 0, width: w, height: h })
     this.overlay.setBounds({ x: 0, y: 0, width: w, height: h })
@@ -337,12 +368,18 @@ export class KiaWindow extends EventEmitter {
     this.layout()
     // A story that never ends because the renderer died would be a browser you
     // cannot use. This is the floor, not the schedule.
-    setTimeout(() => this.endSplash(), 12_000)
+    this.splashTimer = setTimeout(() => {
+      this.splashTimer = null
+      this.endSplash()
+    }, 12_000)
   }
 
   endSplash(): void {
+    if (this.splashTimer) clearTimeout(this.splashTimer)
+    this.splashTimer = null
     if (!this.splash) return
     this.splash = false
+    if (this.window.isDestroyed()) return
     this.layout()
   }
 
@@ -352,7 +389,7 @@ export class KiaWindow extends EventEmitter {
     this.overlayMode = mode
     const open = mode.kind !== 'closed'
     this.overlay.setVisible(open)
-    post(this.overlay.webContents, 'kia:overlay-mode', mode)
+    post(this.overlay.webContents, 'voyager:overlay-mode', mode)
     if (open) this.overlay.webContents.focus()
     else this.focusContent()
   }
@@ -400,7 +437,7 @@ export class KiaWindow extends EventEmitter {
   }
 
   pushState(): void {
-    post(this.chrome.webContents, 'kia:state-changed', this.state())
+    post(this.chrome.webContents, 'voyager:state-changed', this.state())
   }
 
   private wireTabs(): void {
@@ -411,10 +448,10 @@ export class KiaWindow extends EventEmitter {
       this.attached.delete(tab.id)
     })
     this.tabs.on('load-failed', (tab, info) => {
-      post(this.chrome.webContents, 'kia:load-failed', { tabId: tab.id, ...info })
+      post(this.chrome.webContents, 'voyager:load-failed', { tabId: tab.id, ...info })
     })
     this.tabs.on('crashed', (tab) => {
-      post(this.chrome.webContents, 'kia:tab-crashed', { tabId: tab.id })
+      post(this.chrome.webContents, 'voyager:tab-crashed', { tabId: tab.id })
     })
     this.tabs.on('html-fullscreen', (tab: { id: string }, on: boolean) => {
       // Only the tab the user is looking at may take the window.

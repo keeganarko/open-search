@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { KiaWindow } from '../browser/window'
+import type { VoyagerWindow } from '../browser/window'
 import { getSettings } from '../store/settings'
 import { browserTools, serverTools } from './tools'
 import { mcp } from './mcp'
@@ -10,7 +10,7 @@ import { mcp } from './mcp'
  * given read-class tools only.
  */
 export async function oneShot(
-  win: KiaWindow,
+  win: VoyagerWindow,
   prompt: string,
   opts: { system: string; maxRounds?: number; useConnectors?: boolean; effortOverride?: string } = { system: '' }
 ): Promise<string> {

@@ -1,226 +1,150 @@
-# Open Search
+# Voyager
 
-A local, AI-native browser. Dia-shaped, and yours — the model is Claude, the key
-is yours, and everything it learns stays on this machine.
+Voyager is a standalone, local, AI-native desktop browser for Windows,
+macOS, and Linux. It combines everyday browsing, workspace organization, and an
+optional Anthropic-powered assistant in one application. Profiles, browsing
+data, saved credentials, memory, and settings stay on the local machine.
 
-## Run it
+## Windows quick start
 
-```bash
-npm install
+Install Node.js 20 or newer and Git, then run:
+
+```powershell
+git clone https://github.com/keeganarko/voyager.git
+cd voyager
+npm ci
 npm run dev
 ```
 
-Then **Settings → AI** and paste an Anthropic API key. It goes into the macOS
-keychain via `safeStorage`, never into the settings file and never into a sync
-bundle.
+Build the Windows installer with:
+
+```powershell
+npm run dist:win
+```
+
+The installer is written to `release\Voyager Setup 0.1.0.exe`. Voyager
+uses native Windows caption buttons and Ctrl-based shortcuts. Its local profile
+is stored under `%APPDATA%\Voyager\`, with application data in
+`voyager.db`. Deleting that directory performs a full local reset.
+
+To keep Voyager on the Windows taskbar, run the installer, launch Voyager, then
+right-click its taskbar icon and choose **Pin to taskbar**. The Windows build uses
+a stable application ID, so the pinned shortcut continues to resolve across
+normal upgrades.
+
+Clipboard editing works through the standard **Edit** menu, keyboard shortcuts
+(`Ctrl+C`, `Ctrl+V`, and `Ctrl+Shift+V`), and right-click menus in both web pages
+and Voyager's own text fields.
+
+The app can browse without an API key. To enable the assistant, open
+**Settings → AI** and add an Anthropic API key. The key is protected with the
+operating system's credential encryption and is excluded from sync bundles.
+
+## Development
 
 ```bash
-npm run typecheck   # tsc over main+preload and renderer
-npm test            # vitest over the pure logic — urls, policy, crypto, permissions
-npm run build       # electron-vite build
-npm run dist        # a signed-if-you-have-certs .dmg
-npm run dist:win    # an NSIS installer
-npm run dist:linux  # an AppImage
-```
-
-The `.dmg` is ad-hoc signed, which is all macOS needs to *run* it. Copy the app
-out of the image and launch it. On a machine that downloaded the image rather
-than built it, clear the quarantine flag once:
-`xattr -dr com.apple.quarantine "/Applications/Open Search.app"`.
-
-### On Windows
-
-```powershell
-git clone https://github.com/keeganarko/open-search.git
-cd open-search
-npm install
+npm ci
 npm run dev
-```
-
-You need **Node 20 or newer** and git; that is the whole toolchain.
-`better-sqlite3` ships N-API prebuilds, so nothing compiles and no Visual Studio
-build tools are needed. `npm run postinstall` calls `electron-rebuild` and is
-allowed to fail (`|| true`) for exactly that reason — a red line from it during
-`npm install` is expected and harmless. Everything else is platform-agnostic except the window
-chrome: macOS gets `hiddenInset` and the traffic lights, Windows and Linux get
-`titleBarOverlay` with the system minimise/maximise/close drawn into the tab
-strip, and the application menu that lives under **Open Search** on the Mac
-collapses into **File** everywhere else. `<html data-platform>` carries the
-platform to CSS, which is what reserves the right-hand gutter for those buttons.
-
-Each machine keeps its own profile — the database, the cookies and the API key
-never leave it. To carry skills, memory, bookmarks and connectors across, use
-**Settings → Sync**: it writes one passphrase-encrypted file you can drop in
-any shared folder. It deliberately does not carry the key or the sync settings
-themselves.
-
-Shortcuts are the same with Ctrl where the Mac uses ⌘. The profile lives in
-`%APPDATA%\\Open Search\\` — `kia.db` is the SQLite file, and deleting that folder
-is a factory reset.
-
-Before opening a pull request, run all three:
-
-```powershell
 npm run typecheck
 npm test
 npm run build
 ```
 
-## The opening
+Packaging commands:
 
-The first window of a launch opens with a five-second scribble animatic — a
-storyboard that hard-cuts about six times a second, drawn as jittered polylines
-that are re-jittered every frame so the ink "boils" like hand-inked animation.
-Underneath it plays twelve seconds of the *Big Buck Bunny* theme, which then
-crossfades into the same phrase an octave down, filtered dark and reverbed into
-a seamless thirteen-second loop. The bed fades out the moment you click, type,
-or scroll — and after two and a half minutes regardless.
+```bash
+npm run dist       # macOS DMG
+npm run dist:win   # Windows NSIS installer
+npm run dist:linux # Linux AppImage
+```
 
-Both are off switches in Settings → Appearance, with a volume for the sound.
-The audio is derived from the Big Buck Bunny theme © Blender Foundation, used
-under CC BY 3.0; `resources/sounds/NOTICE.md` has the attribution and lists
-exactly what was changed.
+Before opening a pull request, run `npm run typecheck`, `npm test`, and
+`npm run build`.
 
+## Features
 
-## What's here
+- Tabs with drag-to-reorder, pinning, muting, recently closed recovery, groups,
+  and up to four resizable panes.
+- Profiles with independent cookies, browsing data, history, saved logins,
+  tabs, groups, permissions, zoom levels, bookmarks, and assistant memory.
+- A vertical workspace rail with pinned sites, navigation, search, tabs, and
+  tool panels.
+- Full-text history search, bookmarks, downloads, print/PDF, find in page,
+  per-origin zoom, custom new-tab and error pages, and popup support.
+- Ad and tracker blocking with live blocked-request counts and runtime toggles.
+- Site permission controls for camera, microphone, location, notifications,
+  clipboard, screen sharing, MIDI, HID, serial, and USB.
+- Saved-login capture, origin-scoped filling, reveal, and deletion using the
+  operating system's credential encryption.
+- Unpacked extension loading for the extension APIs supported by Electron.
+- A sidebar assistant with streaming responses, visible tool steps, page and
+  tab context, citations, configurable approvals, and prompt-injection guards.
+- Built-in and user-created skills, local memory, daily briefs, encrypted sync,
+  MCP connectors, and PowerPoint/Markdown generation.
 
-**Browsing.** Tabs with drag-to-reorder, pinning, muting and groups; up to four
-panes side by side with draggable splits; profiles with separate cookie jars;
-ad and tracker blocking (Ghostery lists); full-text history search over the page
-text, not just titles.
+## Opening experience
 
-**Site permissions.** Camera, microphone, location, notifications, screen share,
-clipboard read, MIDI, HID/serial/USB and the rest are asked for once per origin
-and remembered, with a sheet that names the site and the exact capability.
-Screen sharing gets its own picker — Chromium's built-in one is unreachable from
-Electron — showing every screen and window as a live thumbnail. Excluded sites
-are refused without a prompt. Everything granted is listed and revocable in
-**Settings → Sites**.
+The first window in each launch can show the Voyager wordmark and play a
+short original synthesized signature. Both can be disabled independently in
+**Settings → Appearance**, and the sound has its own volume control. No bundled
+third-party media is used.
 
-**Passwords.** Saved through `safeStorage`, so the row on disk is a keychain-
-sealed blob and never plaintext. Capture watches for a single password field
-(two means a sign-up or a change-password form, where the pair worth keeping is
-ambiguous, so those are left alone) and offers to save; fill only works when the
-page's origin matches the saved one. **Settings → Passwords** lists, reveals and
-deletes.
+## Privacy and safety model
 
-**Extensions.** Point **Settings → Extensions** at an unpacked directory holding
-a `manifest.json`. Content scripts, `chrome.storage` and `declarativeNetRequest`
-work; toolbar popups and blocking `chrome.webRequest` do not, because Electron
-implements a subset of the extension APIs rather than the whole surface.
+Every assistant tool has an action class:
 
-**Printing.** ⌘P opens the system print dialog, ⌘⇧P writes a PDF of the page to
-a location you choose.
-
-**The sidebar.** Chat against the page you are on. `@` pulls in another tab, the
-whole window, your selection or your history. `/` runs a skill. Streaming text,
-optional visible thinking, tool steps you can expand, and inline citations that
-open in a background tab.
-
-**Skills.** Ten ship built in (`/summary`, `/write`, `/code`, `/compare`,
-`/extract`, `/explain`, `/video`, `/reply`, `/fact-check`, `/shop`). A skill is a
-prompt template plus a declaration of what context it pulls in automatically, and
-optionally a hotkey. Built-ins can be edited and reset; yours can be anything.
-
-**Memory.** Open Search writes short assertions about you as you browse, and reads them
-back as *background, never as instructions*. Everything is visible and deletable
-in one panel.
-
-**Connectors.** Open Search is a plain MCP client — stdio and streamable HTTP. Point it at
-anything that speaks MCP. The presets cover GitHub, Notion, Linear and a scoped
-filesystem, each checked against its live endpoint. Gmail, Calendar and Slack are
-listed but deliberately blank: their reference servers were deprecated on npm and
-there is no official replacement, and a preset that hands an unvetted package
-your mailbox is worse than no preset.
-
-**Morning brief.** A once-a-day pass over your calendar, mail, the tabs you left
-open, and your reading list.
-
-**Decks and reports.** Describe what you need; Open Search reads your tabs, searches where
-it has to, and writes a `.pptx` or a `.md` into `~/Downloads`.
-
-**Sync.** One AES-256-GCM file (scrypt-derived key) in a folder you choose. Put it
-in iCloud and your other machines pick it up. Tabs, groups, memory, skills,
-bookmarks and settings travel. The API key does not.
-
-## How it decides what to ask you about
-
-Every tool Open Search can reach is sorted into an action class, and the class decides
-whether it runs or stops and asks:
-
-| Class | Examples | Default |
+| Class | Example | Default |
 |---|---|---|
-| `read` | read a page, list tabs, search history | runs |
-| `local_reversible` | open a tab, group tabs, remember a fact | runs |
-| `external_draft` | write into a field without sending | asks |
-| `external_write` | send, post, create outside Open Search | asks |
-| `sensitive` | money, deletion, credentials | **always asks** |
+| `read` | Read a page or list tabs | Runs |
+| `local_reversible` | Open or group a tab | Runs |
+| `external_draft` | Write into a field without sending | Asks |
+| `external_write` | Create or send something outside Voyager | Asks |
+| `sensitive` | Deletion, money, or credentials | Always asks |
 
-MCP tools are classified by name and description on connect; anything ambiguous
-lands in `external_write`, not `read`. You can widen the first four in
-**Settings → Approvals**. `sensitive` is not configurable.
+Ambiguous MCP tools default to `external_write`. The `sensitive` policy cannot
+be relaxed. Page content is treated as untrusted data and is delimited before
+being sent to the model. Excluded sites are not read or written by assistant
+tools. Voyager can draft into a field, but it has no form-submit or
+message-send tool.
 
-## Two rules that are structural, not settings
+Sync bundles use AES-256-GCM with a scrypt-derived key. API keys and sync-target
+settings are never exported. Connector subprocesses receive a minimal environment
+instead of inheriting the application's full environment.
 
-**Pages are data.** Page text and search results reach the model inside a marked
-block with an explicit instruction that they are content to report on, never
-commands to follow. If a page tries to give Open Search orders, Open Search says so instead of
-obeying.
+The current installer is unsigned and updates are manual. Treat this as a local
+testing build rather than a primary browser until signing, automatic security
+updates, malicious-site/download reputation checks, and independent review are
+in place. The complete comparison and prioritized hardening roadmap are in
+[the browser audit](docs/AUDIT.md).
 
-**Open Search drafts, you send.** `insert_text` writes into a focused field and dispatches
-input events. There is no tool that submits a form or sends a message.
+## Architecture
 
-## Layout
-
-```
+```text
 src/
-  shared/      types.ts, ipc.ts — the contract both sides compile against
+  shared/      shared types and IPC channel contract
   main/
-    store/     db (SQLite + FTS5), settings, built-in skills, sync
-    browser/   session, adblock, url resolution, tabs, window,
-               permissions (consent + screen picker), passwords, extensions
-    agent/     engine (streaming + approvals), tools, context, mcp,
-               skills, brief, deck, oneshot
-    ipc.ts     every channel
-    menu.ts    app menu + page context menus
+    store/     SQLite, settings, built-in skills, encrypted sync
+    browser/   sessions, tabs, windows, URLs, privacy, passwords, extensions
+    agent/     engine, policy, tools, context, skills, MCP, briefs, documents
+    ipc.ts     renderer-to-main handlers
+    menu.ts    application and page menus
   preload/
-    chrome.ts  the window.kia bridge (chrome + overlay renderers)
-    page.ts    window.__kia — Readability extraction, selection, insert
+    chrome.ts  isolated window.voyager API for the app UI
+    page.ts    isolated page extraction, selection, and text insertion helpers
   renderer/
-    src/       chrome UI (App, left rail, sidebar, panels)
-    src/overlay/  palette, omnibox, writing tools, permission sheet,
-                  screen picker, save-password prompt
-test/          vitest over the pure logic; `electron` and `better-sqlite3`
-               are aliased to stubs so main-process modules import cleanly
+    src/       application UI, sidebar, panels, overlay, and startup experience
+test/          Vitest coverage with Electron and SQLite test stubs
 ```
 
-The window is a `BaseWindow` holding three `WebContentsView`s: the chrome (full
-window), the tab views (positioned in the content rect, detached when offscreen),
-and a transparent overlay added last so the palette paints above page content.
+Each desktop window is a `BaseWindow` containing the app UI, its visible page
+views, and a transparent overlay for palettes and permission prompts. The shared
+IPC table prevents main/preload drift. Each profile uses a
+`persist:voyager-*` Electron session, and internal pages use the
+`voyager://` scheme.
 
-The chrome is Dia-shaped: one left rail carries the pinned sites as favicon
-tiles, the nav buttons, the omnibox, the tabs running down the side, the new-tab
-row and the panel buttons. There is no horizontal tab strip and no horizontal
-toolbar. `CHROME.rail` in `browser/window.ts` and the rail's own width in the
-renderer are the same number, and the content rect is inset by it — if they ever
-disagree, pages paint under the rail. On macOS the traffic lights are inset into
-the rail's top padding and the page runs to the top of the window; Windows and
-Linux draw caption buttons top-right, so they get a full-width strip of their own
-above everything and `CHROME.titlebar` reserves it.
-There can be several; ⌘N opens another, each with its own tabs and its own
-restore set, and IPC routes by which window a message came from rather than by
-which one has focus.
-
-## Known issues
-
-`docs/AUDIT.md` is a full read of the source with 26 findings, each anchored to a
-file and line, ordered by what they actually cost you. Start there before adding
-anything new.
+See [CLAUDE.md](CLAUDE.md) for implementation invariants and
+[docs/AUDIT.md](docs/AUDIT.md) for the Windows port verification record.
 
 ## License
 
 MIT — see [LICENSE](LICENSE). Copyright © 2026 Keegan Choudhury.
-
-The startup audio is derived from the *Big Buck Bunny* theme © Blender
-Foundation and is used under CC BY 3.0; that is a separate licence from the
-code, and `resources/sounds/NOTICE.md` records it.

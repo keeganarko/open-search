@@ -11,6 +11,19 @@ const SCHEME = /^[a-z][a-z0-9+.-]*:/i
 // A bare host: at least one dot, no spaces, a plausible TLD.
 const BARE_HOST = /^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i
 
+/** Schemes that a normal browsing tab may render in its main frame. */
+export function isAllowedPageUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    if (url.protocol === 'http:' || url.protocol === 'https:') return true
+    if (url.protocol === 'about:') return url.href === 'about:blank'
+    return url.protocol === 'voyager:'
+      && (url.hostname === 'new-tab' || url.hostname === 'error')
+  } catch {
+    return false
+  }
+}
+
 export function looksLikeUrl(input: string): boolean {
   const s = input.trim()
   if (!s || /\s/.test(s.split('?')[0])) return false
@@ -32,9 +45,9 @@ export function resolveInput(input: string, engine: Settings['search']['engine']
   const s = input.trim()
   if (!s) return 'about:blank'
   if (SCHEME.test(s)) {
-    // Never let the URL bar drive javascript: or file: navigations.
-    if (/^(javascript|data|blob):/i.test(s)) return SEARCH[engine] + encodeURIComponent(s)
-    return s
+    // Treat unsupported schemes as search text. This covers active schemes such
+    // as javascript:/data:, local file access, and OS protocol handlers.
+    return isAllowedPageUrl(s) ? s : SEARCH[engine] + encodeURIComponent(s)
   }
   if (looksLikeUrl(s)) return `https://${s}`
   return SEARCH[engine] + encodeURIComponent(s)

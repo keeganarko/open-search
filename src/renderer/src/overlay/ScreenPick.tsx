@@ -21,12 +21,12 @@ export default function ScreenPick(
   const [tab, setTab] = useState<'screen' | 'window'>('screen')
   const [picked, setPicked] = useState<string | null>(null)
 
-  const cancel = (): void => window.kia.permissions.pickScreen(null)
+  const cancel = (): void => window.voyager.permissions.pickScreen(null)
 
   useEffect(() => {
     const h = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') cancel()
-      if (e.key === 'Enter' && picked) window.kia.permissions.pickScreen(picked)
+      if (e.key === 'Enter' && picked) window.voyager.permissions.pickScreen(picked)
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
@@ -62,7 +62,7 @@ export default function ScreenPick(
             <button key={s.id}
               className={`pick-cell${picked === s.id ? ' sel' : ''}`}
               onClick={() => setPicked(s.id)}
-              onDoubleClick={() => window.kia.permissions.pickScreen(s.id)}>
+              onDoubleClick={() => window.voyager.permissions.pickScreen(s.id)}>
               {s.thumbnail
                 ? <img src={s.thumbnail} alt="" />
                 : <div className="pick-blank" />}
@@ -77,7 +77,7 @@ export default function ScreenPick(
         <div className="perm-actions">
           <button className="btn" onClick={cancel}>Cancel</button>
           <button className="btn primary" disabled={!picked}
-            onClick={() => picked && window.kia.permissions.pickScreen(picked)}>
+            onClick={() => picked && window.voyager.permissions.pickScreen(picked)}>
             Share
           </button>
         </div>

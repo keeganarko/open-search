@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { requiresApproval } from '../src/main/agent/engine'
-import { inferActionClass } from '../src/main/agent/mcp'
-import { DEFAULT_SETTINGS, DEFAULT_EXCLUDED, isExcluded } from '../src/main/store/settings'
+import { connectorBaseEnv, inferActionClass, validateMcpConfig } from '../src/main/agent/mcp'
+import { DEFAULT_SETTINGS, DEFAULT_EXCLUDED, isExcluded, normalizeSettings } from '../src/main/store/settings'
+import { isSecureLoginUrl } from '../src/main/browser/passwords'
 import type { ActionClass, Settings } from '@shared/types'
 
 const ALL: ActionClass[] = ['read', 'local_reversible', 'external_draft', 'external_write', 'sensitive']
@@ -112,5 +113,80 @@ describe('inferActionClass — words that only look like verbs', () => {
     expect(inferActionClass('addComment')).toBe('external_write')
     expect(inferActionClass('set_status')).toBe('external_write')
     expect(inferActionClass('cancel_subscription')).toBe('sensitive')
+  })
+})
+
+describe('connectorBaseEnv', () => {
+  it('keeps process essentials and strips inherited credentials', () => {
+    expect(connectorBaseEnv({
+      PATH: '/bin', HOME: '/home/alice', LANG: 'en_US.UTF-8',
+      ANTHROPIC_API_KEY: 'secret', AWS_SECRET_ACCESS_KEY: 'secret',
+      CUSTOM_CONNECTOR_TOKEN: 'secret'
+    })).toEqual({ PATH: '/bin', HOME: '/home/alice', LANG: 'en_US.UTF-8' })
+  })
+
+  it('keeps Windows command resolution variables', () => {
+    expect(connectorBaseEnv({
+      Path: 'C:\\Windows', PATHEXT: '.EXE;.CMD', SystemRoot: 'C:\\Windows',
+      COMSPEC: 'C:\\Windows\\System32\\cmd.exe'
+    })).toEqual({
+      Path: 'C:\\Windows', PATHEXT: '.EXE;.CMD', SystemRoot: 'C:\\Windows',
+      COMSPEC: 'C:\\Windows\\System32\\cmd.exe'
+    })
+  })
+})
+
+describe('connector configuration', () => {
+  it('requires encryption in transit for hosted connectors', () => {
+    expect(() => validateMcpConfig({
+      id: 'x', name: 'Remote', enabled: true, transport: 'http',
+      url: 'http://example.com/mcp', headers: {}
+    })).toThrow(/HTTPS/)
+    expect(validateMcpConfig({
+      id: 'x', name: 'Local', enabled: true, transport: 'http',
+      url: 'http://127.0.0.1:8787/mcp', headers: {}
+    }).url).toContain('127.0.0.1')
+  })
+
+  it('rejects malformed local process configuration', () => {
+    expect(() => validateMcpConfig({
+      id: 'x', name: 'Bad', enabled: true, transport: 'stdio',
+      command: 'tool\nsecond-command', args: [], env: {}
+    })).toThrow(/command/)
+    expect(() => validateMcpConfig({
+      id: 'x', name: 'Bad env', enabled: true, transport: 'stdio',
+      command: 'tool', args: [], env: { 'NOT VALID': 'x' }
+    })).toThrow(/environment/)
+  })
+})
+
+describe('settings normalization', () => {
+  it('clamps numbers, strips unknown choices, and bounds imported lists', () => {
+    const normalized = normalizeSettings({
+      ai: { effort: 'unlimited', showThinking: 'yes' },
+      privacy: {
+        historyRetentionDays: 999_999,
+        excludedDomains: [...Array.from({ length: 600 }, (_, i) => `SITE${i}.TEST`), '']
+      },
+      appearance: { theme: 'neon', startupVolume: -10 },
+      approvals: { auto: ['read', 'sensitive', 'made_up'] }
+    })
+    expect(normalized.ai.effort).toBe(DEFAULT_SETTINGS.ai.effort)
+    expect(normalized.ai.showThinking).toBe(DEFAULT_SETTINGS.ai.showThinking)
+    expect(normalized.privacy.historyRetentionDays).toBe(3_650)
+    expect(normalized.privacy.excludedDomains).toHaveLength(500)
+    expect(normalized.privacy.excludedDomains[0]).toBe('site0.test')
+    expect(normalized.appearance.theme).toBe(DEFAULT_SETTINGS.appearance.theme)
+    expect(normalized.appearance.startupVolume).toBe(0)
+    expect(normalized.approvals.auto).toEqual(['read'])
+  })
+})
+
+describe('saved-login transport policy', () => {
+  it('allows HTTPS and local development without filling remote plaintext HTTP', () => {
+    expect(isSecureLoginUrl('https://example.com/login')).toBe(true)
+    expect(isSecureLoginUrl('http://localhost:3000/login')).toBe(true)
+    expect(isSecureLoginUrl('http://127.0.0.1:8080/login')).toBe(true)
+    expect(isSecureLoginUrl('http://example.com/login')).toBe(false)
   })
 })

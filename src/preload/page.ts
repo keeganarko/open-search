@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { ipcRenderer } from 'electron'
 import { Readability, isProbablyReaderable } from '@mozilla/readability'
 
 const MAX = 400_000
@@ -174,7 +174,7 @@ function captureSubmit(): void {
   if (!pw.value) return
   const user = usernameFor(pw)
   if (!user?.value) return
-  ipcRenderer.send('kia:login-submitted', {
+  ipcRenderer.send('voyager:login-submitted', {
     url: location.href, username: user.value, password: pw.value
   })
 }
@@ -189,7 +189,7 @@ document.addEventListener('click', (e) => {
 }, true)
 window.addEventListener('beforeunload', captureSubmit)
 
-ipcRenderer.on('kia:login-fill', (_e, cred: { username: string; password: string }) => {
+ipcRenderer.on('voyager:login-fill', (_e, cred: { username: string; password: string }) => {
   const fields = passwordFields()
   if (!fields.length) return
   const pw = fields[0]
@@ -198,11 +198,20 @@ ipcRenderer.on('kia:login-fill', (_e, cred: { username: string; password: string
   setValue(pw, cred.password)
 })
 
-contextBridge.exposeInMainWorld('__kia', {
+const pageApi = {
   extract, selection, insertText, selectionRect,
   /** Whether a fillable login form is on screen right now. */
   hasLoginForm: () => passwordFields().length > 0,
   meta: () => ({ url: location.href, title: document.title })
+}
+
+// This property exists only in Electron's isolated preload world. Websites run
+// in the main world, so they cannot detect or replace it.
+Object.defineProperty(globalThis, '__voyagerPage', {
+  value: pageApi,
+  configurable: false,
+  enumerable: false,
+  writable: false
 })
 
 // Tell the chrome when a selection appears, so the writing-tools affordance
@@ -212,6 +221,6 @@ document.addEventListener('selectionchange', () => {
   const has = !!selection()
   if (has === lastHadSelection) return
   lastHadSelection = has
-  ipcRenderer.sendToHost?.('kia:selection', has)
-  ipcRenderer.send('kia:page-selection-changed', { url: location.href, hasSelection: has })
+  ipcRenderer.sendToHost?.('voyager:selection', has)
+  ipcRenderer.send('voyager:page-selection-changed', { url: location.href, hasSelection: has })
 })

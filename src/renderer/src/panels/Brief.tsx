@@ -9,11 +9,11 @@ export default function Brief({ onClose, toast }: {
   const [brief, setBrief] = useState<B | null>(null)
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => { void window.kia.brief.get().then(setBrief) }, [])
+  useEffect(() => { void window.voyager.brief.get().then(setBrief) }, [])
 
   const generate = async (): Promise<void> => {
     setBusy(true)
-    try { setBrief(await window.kia.brief.generate()) }
+    try { setBrief(await window.voyager.brief.generate()) }
     catch (e) { toast(String((e as Error).message), 'error') }
     setBusy(false)
   }
@@ -29,7 +29,7 @@ export default function Brief({ onClose, toast }: {
     >
       {!brief && !busy && (
         <div className="empty">
-          Nothing yet today. Open Search pulls from your calendar and mail connectors, the tabs you left
+          Nothing yet today. Voyager pulls from your calendar and mail connectors, the tabs you left
           open, and what you saved to read.
         </div>
       )}
@@ -45,7 +45,7 @@ export default function Brief({ onClose, toast }: {
               </div>
               {item.at && <span className="when">{item.at}</span>}
               {item.url && (
-                <button className="btn" onClick={() => window.kia.tabs.create({ url: item.url! })}>
+                <button className="btn" onClick={() => window.voyager.tabs.create({ url: item.url! })}>
                   Open
                 </button>
               )}

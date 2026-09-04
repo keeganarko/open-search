@@ -2,7 +2,7 @@ import { desktopCapturer, type WebContents } from 'electron'
 import { randomUUID } from 'node:crypto'
 import type { PermissionAsk } from '@shared/types'
 import * as db from '../store/db'
-import { post, type KiaWindow } from './window'
+import { post, type VoyagerWindow } from './window'
 
 /**
  * Granted without asking because none of them reveal anything about the user or
@@ -15,18 +15,19 @@ import { post, type KiaWindow } from './window'
  * page told no up front.
  */
 export const AUTO_GRANTED = new Set([
-  'fullscreen', 'clipboard-sanitized-write', 'pointerLock', 'keyboardLock'
+  'clipboard-sanitized-write'
 ])
 
 /**
  * Everything here gets a prompt the first time an origin asks. Anything absent
  * from both sets is refused outright — Chromium adds permission strings between
- * releases, and a name Open Search has never heard of is not one to grant blind.
+ * releases, and a name Voyager has never heard of is not one to grant blind.
  */
 const ASKABLE = new Set([
   'media', 'geolocation', 'notifications', 'display-capture', 'clipboard-read',
   'midi', 'midiSysex', 'idle-detection', 'window-management', 'speaker-selection',
-  'storage-access', 'top-level-storage-access', 'hid', 'serial', 'usb'
+  'storage-access', 'top-level-storage-access', 'hid', 'serial', 'usb',
+  'fullscreen', 'pointerLock', 'keyboardLock'
 ])
 
 /** Human wording for the sheet. Kept here so main and renderer cannot drift. */
@@ -38,6 +39,9 @@ export const PERMISSION_LABEL: Record<string, string> = {
   notifications: 'send you notifications',
   'display-capture': 'share your screen',
   'clipboard-read': 'read your clipboard',
+  fullscreen: 'enter fullscreen',
+  pointerLock: 'capture your mouse pointer',
+  keyboardLock: 'capture keyboard shortcuts',
   midi: 'use MIDI devices',
   midiSysex: 'send system messages to MIDI devices',
   'idle-detection': 'know when you are away from the computer',
@@ -62,18 +66,18 @@ export function originOf(url: string): string | null {
 interface Pending {
   ask: PermissionAsk
   resolve: (allowed: boolean) => void
-  win: KiaWindow
+  win: VoyagerWindow
 }
 
 const pending = new Map<string, Pending>()
 
 /** Set once at startup; maps a requesting webContents to the window it lives in. */
-let resolveWindow: ((wc: WebContents) => KiaWindow | null) | null = null
-export function setWindowResolver(fn: (wc: WebContents) => KiaWindow | null): void {
+let resolveWindow: ((wc: WebContents) => VoyagerWindow | null) | null = null
+export function setWindowResolver(fn: (wc: WebContents) => VoyagerWindow | null): void {
   resolveWindow = fn
 }
 
-function show(win: KiaWindow): void {
+function show(win: VoyagerWindow): void {
   const asks = [...pending.values()].filter((p) => p.win === win).map((p) => p.ask)
   if (asks.length) win.showOverlay({ kind: 'permission', asks })
   else if (win.overlayMode.kind === 'permission') win.closeOverlay()
@@ -85,7 +89,7 @@ function show(win: KiaWindow): void {
  * callback fires, so a leaked pending entry is a page that never gets an answer.
  */
 export function ask(
-  win: KiaWindow, wc: WebContents, origin: string, permission: string, mediaTypes?: string[]
+  win: VoyagerWindow, wc: WebContents, origin: string, permission: string, mediaTypes?: string[]
 ): Promise<boolean> {
   return new Promise((resolve) => {
     const id = `pm_${randomUUID()}`
@@ -104,45 +108,53 @@ export function ask(
 }
 
 /** The renderer's answer. `remember` writes a standing decision for the origin. */
-export function respond(id: string, allowed: boolean, remember: boolean): void {
+export function respond(
+  win: VoyagerWindow, id: string, allowed: boolean, remember: boolean
+): void {
   const p = pending.get(id)
-  if (!p) return
+  if (!p || p.win !== win) return
   if (remember) db.recordPermission(p.win.profile.id, p.ask.origin, p.ask.permission, allowed)
   p.resolve(allowed)
 }
 
 /** Deny everything still outstanding for a window that is going away. */
-export function cancelFor(win: KiaWindow): void {
+export function cancelFor(win: VoyagerWindow): void {
   for (const [, p] of pending) if (p.win === win) p.resolve(false)
+  pickPending.get(win)?.resolve(null)
 }
 
 // ——— screen sharing ————————————————————————————————————————
 
 interface PickPending {
   resolve: (id: string | null) => void
-  win: KiaWindow
+  win: VoyagerWindow
 }
-let pickPending: PickPending | null = null
+const pickPending = new WeakMap<VoyagerWindow, PickPending>()
 
 /**
  * `getDisplayMedia` fails outright unless a display-media handler is installed,
  * so Chromium's own picker is not available to us — the source list and the
  * choosing both have to happen here.
  */
-export async function pickScreenSource(win: KiaWindow, origin: string): Promise<string | null> {
+export async function pickScreenSource(win: VoyagerWindow, origin: string): Promise<string | null> {
   const sources = await desktopCapturer.getSources({
     types: ['screen', 'window'], thumbnailSize: { width: 320, height: 200 }, fetchWindowIcons: true
   })
   return new Promise((resolve) => {
+    // A window has room for one modal picker. Cancel an older request before
+    // replacing it, while allowing other browser windows to pick independently.
+    pickPending.get(win)?.resolve(null)
     let settled = false
+    let entry: PickPending
     const done = (id: string | null): void => {
       if (settled) return
       settled = true
-      pickPending = null
+      if (pickPending.get(win) === entry) pickPending.delete(win)
       win.closeOverlay()
       resolve(id)
     }
-    pickPending = { resolve: done, win }
+    entry = { resolve: done, win }
+    pickPending.set(win, entry)
     win.showOverlay({
       kind: 'screenPick',
       origin,
@@ -157,8 +169,8 @@ export async function pickScreenSource(win: KiaWindow, origin: string): Promise<
   })
 }
 
-export function respondScreenPick(sourceId: string | null): void {
-  pickPending?.resolve(sourceId)
+export function respondScreenPick(win: VoyagerWindow, sourceId: string | null): void {
+  pickPending.get(win)?.resolve(sourceId)
 }
 
 // ——— the handlers ——————————————————————————————————————————
@@ -170,13 +182,13 @@ export function respondScreenPick(sourceId: string | null): void {
  */
 export async function decide(
   wc: WebContents | null, permission: string, mediaTypes: string[] | undefined,
-  excluded: (url: string) => boolean
+  excluded: (url: string) => boolean, requestingUrl?: string
 ): Promise<boolean> {
   if (AUTO_GRANTED.has(permission)) return true
   if (!ASKABLE.has(permission)) return false
   if (!wc) return false
 
-  const url = wc.getURL()
+  const url = requestingUrl || wc.getURL()
   if (excluded(url)) return false
   const origin = originOf(url)
   if (!origin) return false
@@ -217,7 +229,7 @@ export function checkOrigin(profileId: string, origin: string, permission: strin
 }
 
 /** The window a webContents belongs to, or null. Used by the session wiring. */
-export function windowFor(wc: WebContents): KiaWindow | null {
+export function windowFor(wc: WebContents): VoyagerWindow | null {
   return resolveWindow?.(wc) ?? null
 }
 

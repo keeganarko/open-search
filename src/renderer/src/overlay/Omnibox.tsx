@@ -29,24 +29,24 @@ export default function Omnibox({ anchor, initial, settings, onClose }: {
   const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => { input.current?.focus(); input.current?.select() }, [])
-  useEffect(() => { void window.kia.layout.state().then((s) => setTabs(s.tabs)) }, [])
+  useEffect(() => { void window.voyager.layout.state().then((s) => setTabs(s.tabs)) }, [])
 
   useEffect(() => {
     if (!q.trim()) return setHistory([])
-    const t = setTimeout(() => { void window.kia.history.search(q, 6).then(setHistory) }, 90)
+    const t = setTimeout(() => { void window.voyager.history.search(q, 6).then(setHistory) }, 90)
     return () => clearTimeout(t)
   }, [q])
 
   const navigate = (url: string): void => {
-    void window.kia.layout.state().then((s) => {
-      s.activeTabId ? window.kia.tabs.navigate(s.activeTabId, url) : window.kia.tabs.create({ url })
+    void window.voyager.layout.state().then((s) => {
+      s.activeTabId ? window.voyager.tabs.navigate(s.activeTabId, url) : window.voyager.tabs.create({ url })
     })
     onClose()
   }
 
   const ask = (): void => {
-    window.kia.layout.sidebar(true)
-    void window.kia.chat.send({ conversationId: null, text: q, attachments: [] })
+    window.voyager.layout.sidebar(true)
+    void window.voyager.chat.send({ conversationId: null, text: q, attachments: [] })
     onClose()
   }
 
@@ -56,14 +56,14 @@ export default function Omnibox({ anchor, initial, settings, onClose }: {
   if (trimmed) {
     const isQuestion = QUESTION.test(trimmed) && !looksLikeUrl(trimmed)
     const askRow: Row = {
-      kind: 'ask', label: `Ask Open Search — “${trimmed}”`,
+      kind: 'ask', label: `Ask Voyager — “${trimmed}”`,
       detail: 'Answers here, using this page', run: ask
     }
     const goRow: Row = looksLikeUrl(trimmed)
       ? { kind: 'url', label: trimmed, detail: 'Go to this address', run: () => navigate(trimmed) }
       : { kind: 'search', label: trimmed, detail: `Search ${settings?.search.engine ?? 'the web'}`, run: () => navigate(trimmed) }
 
-    // Dia's whole trick: a question goes to the assistant first, not the engine.
+    // Questions go to the assistant; destinations go directly to navigation.
     if (isQuestion && settings?.search.askFirst !== false) rows.push(askRow, goRow)
     else rows.push(goRow, askRow)
   }
@@ -73,7 +73,7 @@ export default function Omnibox({ anchor, initial, settings, onClose }: {
       t.url.toLowerCase().includes(trimmed.toLowerCase()))).slice(0, 4)) {
     rows.push({
       kind: 'tab', label: t.title || t.url, detail: 'Switch to this tab',
-      run: () => { window.kia.tabs.activate(t.id); onClose() }
+      run: () => { window.voyager.tabs.activate(t.id); onClose() }
     })
   }
 
@@ -100,7 +100,7 @@ export default function Omnibox({ anchor, initial, settings, onClose }: {
           <input
             ref={input}
             value={q}
-            placeholder="Search, type a URL, or ask Open Search…"
+            placeholder="Search, type a URL, or ask Voyager…"
             onChange={(e) => { setQ(e.target.value); setSel(0) }}
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => (s + 1) % Math.max(1, rows.length)) }
@@ -129,7 +129,7 @@ export default function Omnibox({ anchor, initial, settings, onClose }: {
           </div>
         )}
         <div className="sheet-foot">
-          <span>↵ open</span><span>⌘↵ ask Open Search</span><span>esc cancel</span>
+          <span>↵ open</span><span>{window.voyager.platform === 'darwin' ? '⌘↵' : 'Ctrl+↵'} ask Voyager</span><span>esc cancel</span>
         </div>
       </div>
     </>

@@ -6,8 +6,8 @@ export function useWindowState(): FullWindowState | null {
   const [state, setState] = useState<FullWindowState | null>(null)
   useEffect(() => {
     let alive = true
-    void window.kia.layout.state().then((s) => { if (alive) setState(s) })
-    const off = window.kia.onState(setState)
+    void window.voyager.layout.state().then((s) => { if (alive) setState(s) })
+    const off = window.voyager.onState(setState)
     return () => { alive = false; off() }
   }, [])
   return state
@@ -15,9 +15,16 @@ export function useWindowState(): FullWindowState | null {
 
 export function useSettings(): [Settings | null, (patch: Record<string, unknown>) => Promise<void>] {
   const [settings, setSettings] = useState<Settings | null>(null)
-  useEffect(() => { void window.kia.settings.get().then(setSettings) }, [])
+  useEffect(() => {
+    void window.voyager.settings.get().then(setSettings)
+    return window.voyager.onPaused((paused) => {
+      setSettings((current) => current
+        ? { ...current, privacy: { ...current.privacy, paused } }
+        : current)
+    })
+  }, [])
   const update = useCallback(async (patch: Record<string, unknown>) => {
-    setSettings(await window.kia.settings.set(patch))
+    setSettings(await window.voyager.settings.set(patch))
   }, [])
   return [settings, update]
 }
@@ -54,7 +61,7 @@ export function useToasts(): [Toast[], (message: string, kind?: 'info' | 'error'
     setToasts((t) => [...t, { id, message, kind }])
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === 'error' ? 6000 : 3200)
   }, [])
-  useEffect(() => window.kia.onToast((p) => push(p.message, p.kind ?? 'info')), [push])
+  useEffect(() => window.voyager.onToast((p) => push(p.message, p.kind ?? 'info')), [push])
   return [toasts, push]
 }
 

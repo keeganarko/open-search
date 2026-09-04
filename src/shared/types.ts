@@ -19,6 +19,8 @@ export interface TabState {
   canGoForward: boolean
   audible: boolean
   muted: boolean
+  /** Requests blocked on the current page by the privacy engine. */
+  blockedRequests: number
   pinned: boolean
   index: number
   /** ISO date this tab was last activated — drives "tidy" and archiving. */
@@ -48,7 +50,7 @@ export interface Profile {
   id: string
   name: string
   color: string
-  /** Electron session partition, e.g. persist:kia-work */
+  /** Electron session partition, e.g. persist:voyager-work */
   partition: string
   /** Per-profile system prompt fragment given to the assistant. */
   persona: string
@@ -86,7 +88,7 @@ export interface Skill {
   /** Which context the skill pulls in automatically. */
   context: SkillContext
   model: string | null
-  /** Built-ins ship with Open Search and can be reset but not deleted. */
+  /** Built-ins ship with Voyager and can be reset but not deleted. */
   builtin: boolean
   /** Optional global hotkey, e.g. "Cmd+Shift+S" */
   hotkey: string | null
@@ -115,7 +117,7 @@ export interface MemoryItem {
   text: string
   /** Where it came from: a url, "chat", or a skill slug. */
   source: string
-  /** 0..1 — how sure Open Search is. Written facts from the user are 1. */
+  /** 0..1 — how sure Voyager is. Written facts from the user are 1. */
   confidence: number
   /** ISO date after which the fact should be re-verified. */
   expiresAt: string | null
@@ -242,16 +244,16 @@ export interface Settings {
     accent: string
     /** Show the tab strip above or hide it in favour of the command bar. */
     compactChrome: boolean
-    /** Play the opening theme when the first window appears. */
+    /** Play the opening signature when the first window appears. */
     startupSound: boolean
-    /** Show the scribbled opening story on the first window. */
+    /** Show the Voyager launch wordmark on the first window. */
     startupStory: boolean
-    /** 0–1. Applies to the opening theme only. */
+    /** 0–1. Applies to the opening signature only. */
     startupVolume: number
   }
   search: {
     engine: 'google' | 'duckduckgo' | 'brave' | 'kagi'
-    /** When a query looks like a question, offer Ask Open Search first. */
+    /** When a query looks like a question, offer Ask Voyager first. */
     askFirst: boolean
   }
   brief: {
@@ -308,7 +310,7 @@ export interface Bookmark {
   created_at: string
 }
 
-/** What the main process actually pushes on `kia:state-changed`. */
+/** What the main process actually pushes on `voyager:state-changed`. */
 export interface FullWindowState extends WindowState {
   tabs: TabState[]
   groups: TabGroup[]
@@ -320,7 +322,7 @@ export interface FullWindowState extends WindowState {
 
 /**
  * The permission strings are Chromium's own, passed straight through from
- * `setPermissionRequestHandler`. Open Search does not invent its own vocabulary here.
+ * `setPermissionRequestHandler`. Voyager does not invent its own vocabulary here.
  */
 export interface SitePermission {
   /** Scheme + host + port, e.g. https://meet.google.com */

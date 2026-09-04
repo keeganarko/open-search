@@ -2,7 +2,7 @@ import { useState, type JSX } from 'react'
 import Panel from './Panel'
 
 /**
- * Decks and reports. Open Search writes both from whatever is open plus the instruction,
+ * Decks and reports. Voyager writes both from whatever is open plus the instruction,
  * then hands back a file — it never uploads anything anywhere.
  */
 export default function Compose({ onClose, toast }: {
@@ -18,8 +18,8 @@ export default function Compose({ onClose, toast }: {
     setMade(null)
     try {
       const r = kind === 'deck'
-        ? await window.kia.compose.deck(instruction)
-        : await window.kia.compose.report(instruction)
+        ? await window.voyager.compose.deck(instruction)
+        : await window.voyager.compose.report(instruction)
       setMade(r)
       toast(`Saved to ${r.path}`)
     } catch (e) { toast(String((e as Error).message), 'error') }
@@ -31,7 +31,7 @@ export default function Compose({ onClose, toast }: {
       <div className="field">
         <label>What should it cover?</label>
         <div className="desc">
-          Open Search reads your open tabs and searches the web where it needs to. Say who it is for and
+          Voyager reads your open tabs and searches the web where it needs to. Say who it is for and
           what it has to land — that matters more than the topic.
         </div>
         <textarea rows={6} autoFocus value={instruction}
@@ -53,8 +53,8 @@ export default function Compose({ onClose, toast }: {
           <div className="t">{made.title}</div>
           <div className="s">{made.path}</div>
           <div className="row" style={{ marginTop: 10 }}>
-            <button className="btn" onClick={() => window.kia.compose.reveal(made.path)}>
-              Show in Finder
+            <button className="btn" onClick={() => window.voyager.compose.reveal(made.path)}>
+              Show in folder
             </button>
           </div>
         </div>
