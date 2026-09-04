@@ -187,7 +187,7 @@ src/
     chrome.ts  the window.kia bridge (chrome + overlay renderers)
     page.ts    window.__kia — Readability extraction, selection, insert
   renderer/
-    src/       chrome UI (App, tab strip, toolbar, sidebar, panels)
+    src/       chrome UI (App, left rail, sidebar, panels)
     src/overlay/  palette, omnibox, writing tools, permission sheet,
                   screen picker, save-password prompt
 test/          vitest over the pure logic; `electron` and `better-sqlite3`
@@ -197,6 +197,16 @@ test/          vitest over the pure logic; `electron` and `better-sqlite3`
 The window is a `BaseWindow` holding three `WebContentsView`s: the chrome (full
 window), the tab views (positioned in the content rect, detached when offscreen),
 and a transparent overlay added last so the palette paints above page content.
+
+The chrome is Dia-shaped: one left rail carries the pinned sites as favicon
+tiles, the nav buttons, the omnibox, the tabs running down the side, the new-tab
+row and the panel buttons. There is no horizontal tab strip and no horizontal
+toolbar. `CHROME.rail` in `browser/window.ts` and the rail's own width in the
+renderer are the same number, and the content rect is inset by it — if they ever
+disagree, pages paint under the rail. On macOS the traffic lights are inset into
+the rail's top padding and the page runs to the top of the window; Windows and
+Linux draw caption buttons top-right, so they get a full-width strip of their own
+above everything and `CHROME.titlebar` reserves it.
 There can be several; ⌘N opens another, each with its own tabs and its own
 restore set, and IPC routes by which window a message came from rather than by
 which one has focus.

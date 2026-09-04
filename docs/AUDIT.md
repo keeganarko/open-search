@@ -88,14 +88,19 @@ Two `invoice.pdf` downloads produce one file. Chrome writes `invoice (1).pdf`.
 Calling `setSavePath` at all is what disables Chromium's own uniquifier — you
 have to reimplement it.
 
-### 5. The new-tab page does not exist · `browser/tabs.ts:20, 96`
+### ~~5. The new-tab page does not exist~~ — half fixed · `browser/tabs.ts:20, 96`
 
 `kia://new-tab` is a sentinel string. No protocol is registered for it and
-`create()` explicitly skips loading it, so a new tab is a blank `WebContentsView`.
-Worse, `tab.state.url` is still `kia://new-tab`, and `Toolbar.tsx` renders the
-host of any truthy URL — so a brand-new tab shows **`new-tab`** in the address
-bar instead of "Search, type a URL, or ask Open Search…". Either register the
-scheme and serve a real page, or set the url to `''`.
+`create()` explicitly skips loading it, so a new tab is still a blank
+`WebContentsView` — **that part stands.**
+
+~~Worse, `tab.state.url` is still `kia://new-tab`, and the toolbar renders the
+host of any truthy URL — so a brand-new tab shows `new-tab` in the address bar
+instead of its placeholder.~~ Fixed: `create()` now stores `''` for the sentinel,
+so the omnibox shows its placeholder and the reopen-tab stack stops collecting
+sentinels. Confirmed in a running window before and after.
+
+What remains is the real new-tab page: register the scheme and serve something.
 
 ### 6. A pending approval can wedge the agent · `agent/engine.ts:342`
 

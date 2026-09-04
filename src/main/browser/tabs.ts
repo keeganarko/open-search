@@ -82,7 +82,11 @@ export class TabManager extends EventEmitter {
       id, view, historyId: null, activatedAt: null,
       state: {
         id, profileId: this.profile.id, groupId: opts.groupId ?? null,
-        url, title: 'New Tab', favicon: null, loading: false,
+        // NEW_TAB is a sentinel for "load nothing", not an address. Reporting it
+        // as the tab's URL made the omnibox read "new-tab" instead of showing
+        // its placeholder, and left the chrome claiming a page that isn't there.
+        url: url === NEW_TAB ? '' : url,
+        title: 'New Tab', favicon: null, loading: false,
         canGoBack: false, canGoForward: false, audible: false, muted: false,
         pinned: false, index: this.order.length, lastActiveAt: now, createdAt: now
       }

@@ -64,6 +64,8 @@ const api = {
     ratios: (r: number[]) => send(IPC.splitRatios, r),
     sidebar: (open?: boolean) => send(IPC.sidebarToggle, open),
     sidebarWidth: (px: number) => send(IPC.sidebarWidth, px),
+    rail: (open?: boolean) => send(IPC.railToggle, open),
+    railWidth: (px: number) => send(IPC.railWidth, px),
     state: () => invoke<FullWindowState>('kia:window-state')
   },
 

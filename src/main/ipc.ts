@@ -123,6 +123,8 @@ export function registerIpc(resolveWindow: ResolveWindow): void {
   on(IPC.splitRatios, (ratios) => win().setSplitRatios(ratios))
   on(IPC.sidebarToggle, (open) => win().toggleSidebar(open))
   on(IPC.sidebarWidth, (px) => win().setSidebarWidth(px))
+  on(IPC.railToggle, (open) => win().toggleRail(open))
+  on(IPC.railWidth, (px) => win().setRailWidth(px))
   on(IPC.paletteOpen, (mode) => win().showOverlay(mode ?? { kind: 'palette' }))
   on(IPC.paletteClose, () => win().closeOverlay())
 

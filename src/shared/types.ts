@@ -68,6 +68,9 @@ export interface WindowState {
   split: SplitLayout | null
   sidebarOpen: boolean
   sidebarWidth: number
+  /** The left rail — pinned tiles, omnibox, tab list. */
+  railOpen: boolean
+  railWidth: number
 }
 
 // ——— Skills ———————————————————————————————————————————————

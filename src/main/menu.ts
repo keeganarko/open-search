@@ -90,7 +90,10 @@ export function buildAppMenu(getWindow: GetWindow): void {
           }
         },
         {
-          label: 'Save as PDF…', accelerator: 'CmdOrCtrl+Shift+P',
+          // No accelerator: it collided with Pin Tab, and Electron silently gives
+          // a duplicate to whichever item registers first — which was this one,
+          // so pinning never fired. Pin won; ⌘P's print sheet can still save a PDF.
+          label: 'Save as PDF…',
           click: () => send('kia:print-pdf')
         },
         { type: 'separator' },
@@ -153,6 +156,10 @@ export function buildAppMenu(getWindow: GetWindow): void {
         },
         { type: 'separator' },
         {
+          label: 'Toggle Tab Rail', accelerator: 'CmdOrCtrl+S',
+          click: () => w()?.toggleRail()
+        },
+        {
           label: 'Toggle Open Search Sidebar', accelerator: 'CmdOrCtrl+Shift+K',
           click: () => w()?.toggleSidebar()
         },
@@ -188,7 +195,12 @@ export function buildAppMenu(getWindow: GetWindow): void {
           click: () => { const id = tabId(); if (id) w()?.tabs.forward(id) }
         },
         { type: 'separator' },
-        { label: 'Show All History', click: () => send('kia:open-history') },
+        {
+          // Chrome's own binding on each platform: ⌘Y on the Mac, Ctrl+H elsewhere.
+          label: 'Show All History',
+          accelerator: process.platform === 'darwin' ? 'Cmd+Y' : 'Ctrl+H',
+          click: () => send('kia:open-history')
+        },
         {
           label: 'Clear History…',
           click: () => send('kia:open-privacy')
@@ -288,7 +300,10 @@ export function buildAppMenu(getWindow: GetWindow): void {
             }
           }
         },
-        { label: 'Show All Bookmarks', click: () => send('kia:open-bookmarks') }
+        {
+          label: 'Show All Bookmarks', accelerator: 'CmdOrCtrl+Shift+O',
+          click: () => send('kia:open-bookmarks')
+        }
       ]
     },
     {

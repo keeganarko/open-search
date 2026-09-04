@@ -42,6 +42,8 @@ export const IPC = {
   // sidebar / overlay
   sidebarToggle: 'kia:sidebar-toggle',
   sidebarWidth: 'kia:sidebar-width',
+  railToggle: 'kia:rail-toggle',
+  railWidth: 'kia:rail-width',
   paletteOpen: 'kia:palette-open',
   paletteClose: 'kia:palette-close',
   // chat

@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import { useAccent, useSettings, useTheme, useToasts, useWindowState } from './state'
 import { playStartupSound } from './startupSound'
 import Splash from './components/Splash'
-import TabStrip from './components/TabStrip'
-import Toolbar from './components/Toolbar'
+import Rail from './components/Rail'
 import Sidebar from './components/Sidebar'
 import SplitHandles from './components/SplitHandles'
 import FindBar from './components/FindBar'
@@ -34,8 +33,9 @@ export default function App(): JSX.Element {
   const [splash, setSplash] = useState(false)
 
   useTheme(settings?.appearance.theme)
-  // Drives the tab strip's padding: macOS puts its window controls on the left,
-  // Windows and Linux on the right.
+  // Drives the rail's top inset and whether a title strip is drawn at all:
+  // macOS insets its traffic lights into the rail, Windows and Linux draw
+  // caption buttons top-right and need a strip of their own.
   useEffect(() => { document.documentElement.dataset.platform = window.kia.platform }, [])
   useAccent(settings?.appearance.accent)
 
@@ -110,15 +110,20 @@ export default function App(): JSX.Element {
     })
   }, [])
 
-  // Sidebar resize.
-  const dragging = useRef(false)
+  // Rail and sidebar resize. One ref, because only one edge can be dragged at a
+  // time and each reads the pointer from its own side of the window.
+  const dragging = useRef<'rail' | 'sidebar' | null>(null)
+  const grab = (edge: 'rail' | 'sidebar') => (): void => {
+    dragging.current = edge
+    document.body.style.cursor = 'col-resize'
+  }
   useEffect(() => {
     const move = (e: MouseEvent): void => {
-      if (!dragging.current) return
-      window.kia.layout.sidebarWidth(window.innerWidth - e.clientX)
+      if (dragging.current === 'sidebar') window.kia.layout.sidebarWidth(window.innerWidth - e.clientX)
+      else if (dragging.current === 'rail') window.kia.layout.railWidth(e.clientX)
     }
     const up = (): void => {
-      if (dragging.current) { dragging.current = false; document.body.style.cursor = '' }
+      if (dragging.current) { dragging.current = null; document.body.style.cursor = '' }
     }
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
@@ -142,18 +147,26 @@ export default function App(): JSX.Element {
   const active = state.tabs.find((t) => t.id === state.activeTabId)
   const close = (): void => setPanel(null)
 
+  const mac = window.kia.platform === 'darwin'
+
   return (
     <div className="shell">
-      <TabStrip state={state} crashed={crashed} />
-      <Toolbar
-        state={state}
-        active={active}
-        panel={panel}
-        onPanel={(p) => setPanel(p as PanelName | null)}
-        onOmnibox={openOmnibox}
-      />
+      {/* Windows and Linux only: the strip the system caption buttons sit in.
+          On macOS the traffic lights live inside the rail, so there is none. */}
+      {!mac && <div className="titlebar" />}
 
       <div className="body">
+        {state.railOpen && (
+          <Rail
+            state={state}
+            active={active}
+            crashed={crashed}
+            panel={panel}
+            onPanel={(p) => setPanel(p as PanelName | null)}
+            onOmnibox={openOmnibox}
+          />
+        )}
+        {state.railOpen && <div className="rail-handle" onMouseDown={grab('rail')} />}
         <div className="content">
           {!active && (
             <div className="emptystate">
@@ -191,8 +204,7 @@ export default function App(): JSX.Element {
 
         {state.sidebarOpen && (
           <>
-            <div className="sidebar-handle"
-              onMouseDown={() => { dragging.current = true; document.body.style.cursor = 'col-resize' }} />
+            <div className="sidebar-handle" onMouseDown={grab('sidebar')} />
             <Sidebar
               width={state.sidebarWidth}
               onPanel={(p) => setPanel(p as PanelName | null)}

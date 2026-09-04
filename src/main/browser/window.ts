@@ -10,9 +10,19 @@ import * as db from '../store/db'
 
 /** Chrome geometry. The renderer mirrors these in CSS custom properties. */
 export const CHROME = {
-  tabStrip: 40,
-  toolbar: 44,
-  get top(): number { return this.tabStrip + this.toolbar },
+  /** The left rail: pinned tiles, the omnibox, the tab list. Dia's shape. */
+  rail: 240,
+  /**
+   * Height of the strip kept clear above page content. macOS insets its traffic
+   * lights into the rail's own top padding, so nothing is reserved there and the
+   * page runs to the top of the window. Windows and Linux draw caption buttons
+   * at the top *right* — over the page, if we let them — so those platforms get
+   * a full-width strip the height of the `titleBarOverlay`.
+   */
+  titlebar: process.platform === 'darwin' ? 0 : 38,
+  get top(): number { return this.titlebar },
+  railMin: 190,
+  railMax: 380,
   sidebarMin: 320,
   sidebarMax: 760,
   sidebarDefault: 400,
@@ -58,6 +68,8 @@ export class KiaWindow extends EventEmitter {
 
   private sidebarOpen = true
   private sidebarWidth = CHROME.sidebarDefault
+  private railOpen = true
+  private railWidth = CHROME.rail
   private split: SplitLayout | null = null
   /** Read by the permission code to tell "my sheet" from someone else's. */
   overlayMode: OverlayMode = { kind: 'closed' }
@@ -158,7 +170,13 @@ export class KiaWindow extends EventEmitter {
   private contentRect(): Rectangle {
     const [w, h] = this.window.getContentSize()
     const sidebar = this.sidebarOpen ? this.sidebarWidth : 0
-    return { x: 0, y: CHROME.top, width: Math.max(0, w - sidebar), height: Math.max(0, h - CHROME.top) }
+    const rail = this.railOpen ? this.railWidth : 0
+    return {
+      x: rail,
+      y: CHROME.top,
+      width: Math.max(0, w - rail - sidebar),
+      height: Math.max(0, h - CHROME.top)
+    }
   }
 
   layout(): void {
@@ -267,6 +285,18 @@ export class KiaWindow extends EventEmitter {
     this.pushState()
   }
 
+  toggleRail(open?: boolean): void {
+    this.railOpen = open ?? !this.railOpen
+    this.layout()
+    this.pushState()
+  }
+
+  setRailWidth(px: number): void {
+    this.railWidth = Math.max(CHROME.railMin, Math.min(CHROME.railMax, Math.round(px)))
+    this.layout()
+    this.pushState()
+  }
+
   setSplit(tabIds: string[]): void {
     const live = tabIds.filter((id) => this.tabs.get(id)).slice(0, 4)
     this.split = live.length > 1
@@ -360,6 +390,8 @@ export class KiaWindow extends EventEmitter {
       split: this.split,
       sidebarOpen: this.sidebarOpen,
       sidebarWidth: this.sidebarWidth,
+      railOpen: this.railOpen,
+      railWidth: this.railWidth,
       tabs: this.tabs.list(),
       groups: this.tabs.groups,
       profile: this.profile,

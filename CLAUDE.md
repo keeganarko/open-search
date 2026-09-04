@@ -20,6 +20,11 @@ when you are changing the code.
 - **Never widen the `sensitive` action class.** `engine.needsApproval` ignores the
   settings for it deliberately.
 - **`isExcluded` fails closed.** An unparseable URL is treated as excluded.
+- **The rail's width is agreed in two places.** `CHROME.rail` insets the content
+  rect in main; `state.railWidth` sizes `.rail` in the renderer. They are the
+  same number by construction (main owns it and pushes it), so change it in
+  `window.ts` and let it flow — never hard-code a width in the CSS, or pages
+  paint under the rail.
 - **The sync bundle strips `ai.apiKey` and `sync` on import.** A bundle must not
   be able to overwrite machine-local secrets.
 
@@ -60,6 +65,11 @@ when you are changing the code.
   picker, so the app has to draw one.
 - `setDevicePermissionHandler` carries no frame, so the profile cannot be
   recovered from the request. `sessionFor` takes the profile id and closes over it.
+- `.rail > *` turns off `-webkit-app-region: drag` for every child, so anything
+  meant to drag the window has to turn it back on. `.rail-grab` — the strip the
+  macOS traffic lights are inset into — does exactly that, and it has to stay
+  *after* `.rail > *` in the stylesheet because the two have equal specificity.
+  This has already been shipped broken once.
 - `app.getPath('userData')` **creates** the directory. A migration that renames
   the profile directory has to build the path from `appData` instead, run at
   module load (not `whenReady`), and delete the three `Singleton*` symlinks it
