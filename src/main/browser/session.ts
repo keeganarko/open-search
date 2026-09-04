@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { getSettings, isExcluded } from '../store/settings'
 import { attachBlocker, detachBlocker, filterRequest } from './adblock'
 import { matchesThreat } from '../security/threats'
+import { configureSpellcheck } from '../security/spellcheck'
 import { downloadRisk, executableContent, markDownloadedFile } from '../security/downloads'
 import * as perms from './permissions'
 import type { DownloadEntry } from '@shared/types'
@@ -126,7 +127,7 @@ export function sessionFor(partition: string, profileId: string): Session {
   registerVoyagerProtocol(ses)
 
   ses.setUserAgent(browserUserAgent(ses.getUserAgent()))
-  ses.setSpellCheckerEnabled(getSettings().privacy.spellcheckEnabled)
+  configureSpellcheck(ses, getSettings().privacy.spellcheckEnabled)
 
   ses.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
     if (matchesThreat(details.url)) return callback({ cancel: true })
@@ -287,11 +288,11 @@ export function sessionFor(partition: string, profileId: string): Session {
 /** Apply ad/tracker toggles to every partition that is already running. */
 export async function refreshSessionPrivacy(): Promise<void> {
   const privacy = getSettings().privacy
-  session.defaultSession.setSpellCheckerEnabled(privacy.spellcheckEnabled)
+  configureSpellcheck(session.defaultSession, privacy.spellcheckEnabled)
   const enabled = privacy.blockAds || privacy.blockTrackers
   await Promise.all([...liveSessions.values()].map(async (ses) => {
     try {
-      ses.setSpellCheckerEnabled(privacy.spellcheckEnabled)
+      configureSpellcheck(ses, privacy.spellcheckEnabled)
       enabled ? await attachBlocker(ses) : await detachBlocker(ses)
     } catch (err) {
       console.error('[voyager] could not update blocker state:', err)

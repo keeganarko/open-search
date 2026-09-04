@@ -23,6 +23,7 @@ import { generateBrief, existingBrief } from './agent/brief'
 import { engine } from './agent/engine'
 import { initializeUpdates } from './security/updates'
 import { initializeThreats } from './security/threats'
+import { configureSpellcheck } from './security/spellcheck'
 
 const windows = new Set<VoyagerWindow>()
 let focused: VoyagerWindow | null = null
@@ -46,6 +47,8 @@ function developmentRendererUrl(raw: string | undefined): string | null {
 }
 
 const DEV_URL = developmentRendererUrl(process.env.ELECTRON_RENDERER_URL)
+
+app.on('session-created', (ses) => configureSpellcheck(ses))
 
 // This branch is compiled out of release builds. A test build can only create
 // its own disposable profile; it never accepts a profile path from arguments.

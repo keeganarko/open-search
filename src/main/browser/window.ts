@@ -6,6 +6,7 @@ import { EventEmitter } from 'node:events'
 import { TabManager } from './tabs'
 import type { FullWindowState, PermissionAsk, Profile, SplitLayout } from '@shared/types'
 import { getSettings } from '../store/settings'
+import { configureSpellcheck } from '../security/spellcheck'
 import * as db from '../store/db'
 
 /** Chrome geometry. The renderer mirrors these in CSS custom properties. */
@@ -90,7 +91,7 @@ export class VoyagerWindow extends EventEmitter {
     super()
     this.profile = profile
     this.key = key
-    session.defaultSession.setSpellCheckerEnabled(getSettings().privacy.spellcheckEnabled)
+    configureSpellcheck(session.defaultSession, getSettings().privacy.spellcheckEnabled)
 
     const mac = process.platform === 'darwin'
     const dark = nativeTheme.shouldUseDarkColors

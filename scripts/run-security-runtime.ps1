@@ -8,7 +8,7 @@ $process = Start-Process -FilePath $binary -ArgumentList @("`"--security-report=
   -RedirectStandardOutput "$evidence/stdout.log" -RedirectStandardError "$evidence/stderr.log" -PassThru
 if (!$process.WaitForExit(150000)) {
   # Preserve the isolated CI desktop's startup error, if Electron displayed one.
-  try {
+  if ($env:GITHUB_ACTIONS -eq 'true') { try {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
@@ -17,7 +17,7 @@ if (!$process.WaitForExit(150000)) {
     $graphics.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bounds.Size)
     $bitmap.Save("$evidence/startup.png")
     $graphics.Dispose(); $bitmap.Dispose()
-  } catch { Write-Warning 'Could not capture the isolated test desktop.' }
+  } catch { Write-Warning 'Could not capture the isolated test desktop.' } }
   $process.Kill()
   Get-Content "$evidence/stderr.log" -ErrorAction SilentlyContinue | Select-Object -Last 80
   throw 'Packaged security tests timed out.'

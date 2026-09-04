@@ -23,7 +23,9 @@ export const safeStorage = {
   decryptString: (b: Buffer) => b.toString('utf8')
 }
 
-export const session = { fromPartition: () => ({}), defaultSession: { setSpellCheckerEnabled: () => {} } }
+export const session = { fromPartition: () => ({}), defaultSession: {
+  setSpellCheckerEnabled: () => {}, setSpellCheckerDictionaryDownloadURL: () => {}
+} }
 export const shell = { openExternal: () => Promise.resolve() }
 export const dialog = {}
 export const nativeTheme = {}
