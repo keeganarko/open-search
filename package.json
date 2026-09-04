@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Open Search — a local, AI-native browser. Dia-shaped, yours.",
   "main": "./out/main/index.js",
-  "author": "Keegan Arko",
+  "author": "Keegan Choudhury",
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",

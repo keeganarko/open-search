@@ -37,8 +37,11 @@ npm install
 npm run dev
 ```
 
+You need **Node 20 or newer** and git; that is the whole toolchain.
 `better-sqlite3` ships N-API prebuilds, so nothing compiles and no Visual Studio
-build tools are needed. Everything else is platform-agnostic except the window
+build tools are needed. `npm run postinstall` calls `electron-rebuild` and is
+allowed to fail (`|| true`) for exactly that reason — a red line from it during
+`npm install` is expected and harmless. Everything else is platform-agnostic except the window
 chrome: macOS gets `hiddenInset` and the traffic lights, Windows and Linux get
 `titleBarOverlay` with the system minimise/maximise/close drawn into the tab
 strip, and the application menu that lives under **Open Search** on the Mac
@@ -51,7 +54,17 @@ never leave it. To carry skills, memory, bookmarks and connectors across, use
 any shared folder. It deliberately does not carry the key or the sync settings
 themselves.
 
-Shortcuts are the same with Ctrl where the Mac uses ⌘.
+Shortcuts are the same with Ctrl where the Mac uses ⌘. The profile lives in
+`%APPDATA%\\Open Search\\` — `kia.db` is the SQLite file, and deleting that folder
+is a factory reset.
+
+Before opening a pull request, run all three:
+
+```powershell
+npm run typecheck
+npm test
+npm run build
+```
 
 ## The opening
 
@@ -187,3 +200,11 @@ and a transparent overlay added last so the palette paints above page content.
 There can be several; ⌘N opens another, each with its own tabs and its own
 restore set, and IPC routes by which window a message came from rather than by
 which one has focus.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Copyright © 2026 Keegan Choudhury.
+
+The startup audio is derived from the *Big Buck Bunny* theme © Blender
+Foundation and is used under CC BY 3.0; that is a separate licence from the
+code, and `resources/sounds/NOTICE.md` records it.
