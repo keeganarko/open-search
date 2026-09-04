@@ -201,6 +201,12 @@ There can be several; ⌘N opens another, each with its own tabs and its own
 restore set, and IPC routes by which window a message came from rather than by
 which one has focus.
 
+## Known issues
+
+`docs/AUDIT.md` is a full read of the source with 26 findings, each anchored to a
+file and line, ordered by what they actually cost you. Start there before adding
+anything new.
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Copyright © 2026 Keegan Choudhury.
