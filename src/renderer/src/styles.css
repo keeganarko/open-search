@@ -98,8 +98,10 @@ a { color: var(--accent); }
   flex: 0 1 auto; max-width: 100%; height: 100%; scrollbar-width: none;
 }
 /* Eats the leftover width so the run of tabs — and the + on its end — stays
-   left-aligned instead of stretching to the window edge. */
-.tabstrip-spacer { flex: 1 1 auto; height: 100%; min-width: 0; }
+   left-aligned instead of stretching to the window edge. `.tabstrip > *` turns
+   drag off for every child; the spacer is the empty strip you grab the window
+   by, so it has to turn it back on. */
+.tabstrip-spacer { flex: 1 1 auto; height: 100%; min-width: 0; -webkit-app-region: drag; }
 .tabstrip-scroll::-webkit-scrollbar { display: none; }
 
 .group-chip {

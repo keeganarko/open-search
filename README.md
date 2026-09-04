@@ -19,12 +19,39 @@ npm run typecheck   # tsc over main+preload and renderer
 npm test            # vitest over the pure logic — urls, policy, crypto, permissions
 npm run build       # electron-vite build
 npm run dist        # a signed-if-you-have-certs .dmg
+npm run dist:win    # an NSIS installer
+npm run dist:linux  # an AppImage
 ```
 
 The `.dmg` is ad-hoc signed, which is all macOS needs to *run* it. Copy the app
 out of the image and launch it. On a machine that downloaded the image rather
 than built it, clear the quarantine flag once:
 `xattr -dr com.apple.quarantine "/Applications/Open Search.app"`.
+
+### On Windows
+
+```powershell
+git clone https://github.com/keeganarko/open-search.git
+cd open-search
+npm install
+npm run dev
+```
+
+`better-sqlite3` ships N-API prebuilds, so nothing compiles and no Visual Studio
+build tools are needed. Everything else is platform-agnostic except the window
+chrome: macOS gets `hiddenInset` and the traffic lights, Windows and Linux get
+`titleBarOverlay` with the system minimise/maximise/close drawn into the tab
+strip, and the application menu that lives under **Open Search** on the Mac
+collapses into **File** everywhere else. `<html data-platform>` carries the
+platform to CSS, which is what reserves the right-hand gutter for those buttons.
+
+Each machine keeps its own profile — the database, the cookies and the API key
+never leave it. To carry skills, memory, bookmarks and connectors across, use
+**Settings → Sync**: it writes one passphrase-encrypted file you can drop in
+any shared folder. It deliberately does not carry the key or the sync settings
+themselves.
+
+Shortcuts are the same with Ctrl where the Mac uses ⌘.
 
 ## The opening
 
