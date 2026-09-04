@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, cpSync, symlinkSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, cpSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { build } from 'electron-builder'
@@ -23,11 +23,11 @@ try {
   })
   if (result.status !== 0) throw new Error('Security test build failed.')
   // Assets or source can change in another editor while packaging takes minutes.
-  // Freeze all app inputs. Dependency installation is read-only during this task.
-  for (const name of ['out', 'resources', 'build', 'package.json', 'package-lock.json']) {
+  // Freeze dependencies too: a linked node_modules directory can make builder's
+  // collector omit hoisted transitive packages after a clean npm ci.
+  for (const name of ['out', 'resources', 'build', 'package.json', 'package-lock.json', 'node_modules']) {
     cpSync(name, join(snapshot, name), { recursive: true })
   }
-  symlinkSync(resolve('node_modules'), join(snapshot, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
   await build({ projectDir: snapshot, ...(process.argv.includes('--linux') ? { linux: ['dir'] } : { win: ['dir'] }), x64: true, publish: 'never', config: {
     directories: { output: resolve('release/security-runtime') },
     win: { signExecutable: false, extraResources: [] },
