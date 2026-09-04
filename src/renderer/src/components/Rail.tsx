@@ -1,3 +1,4 @@
+import VoyagerMark from './VoyagerMark'
 import { useEffect, useState, type DragEvent, type JSX } from 'react'
 import type { FullWindowState, TabState, TabGroup } from '@shared/types'
 
@@ -267,7 +268,7 @@ export default function Rail({
           <span className="profiledot" style={{ background: state.profile.color }} />
         </button>
         <button className={`iconbtn${state.sidebarOpen ? ' on' : ''}`} title={`Toggle Voyager (${shift}K)`}
-          onClick={() => window.voyager.layout.sidebar(!state.sidebarOpen)}>◫</button>
+          onClick={() => window.voyager.layout.sidebar(!state.sidebarOpen)}><VoyagerMark /></button>
       </div>
     </div>
   )

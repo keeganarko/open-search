@@ -1,3 +1,4 @@
+import VoyagerMark from './VoyagerMark'
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 
 const DISPLAY_MS = 2_100
@@ -42,7 +43,7 @@ export default function Splash({ onDone }: { onDone: () => void }): JSX.Element 
       aria-label="Voyager"
     >
       <div className="splash__reveal">
-        <div className="splash__wordmark">Voyager</div>
+        <div className="splash__wordmark"><VoyagerMark size={64} /> Voyager</div>
       </div>
     </div>
   )

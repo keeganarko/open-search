@@ -1,3 +1,5 @@
+<img src="resources/voyager-mark.svg" width="64" height="64" alt="Voyager rocket icon">
+
 # Voyager
 
 ### A little less browsing. A little more understanding.

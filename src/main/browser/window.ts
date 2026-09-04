@@ -90,6 +90,7 @@ export class VoyagerWindow extends EventEmitter {
     const dark = nativeTheme.shouldUseDarkColors
     this.window = new BaseWindow({
       width: 1440, height: 900, minWidth: 720, minHeight: 480,
+      icon: join(app.getAppPath(), 'resources/icon-256.png'),
       // The tab strip is the title bar on every platform, but the controls sit
       // on opposite sides: macOS insets its traffic lights into our own chrome,
       // Windows and Linux need `titleBarOverlay` or there are no controls at all.
