@@ -3,7 +3,8 @@
 Follow-up to the September 4, 2026 source audit. These controls are implemented
 in the source. Existing 0.1.0 installations do not gain them until rebuilt
 and installed. This document distinguishes implementation from operational
-activation and independent assurance.
+activation and independent assurance. See the [validation record](SECURITY-VALIDATION-2026-09-04.md)
+for passing Windows checks, the Linux vault limitation, and checks still required.
 
 ## 1. Signed updates and engine patches
 
@@ -111,7 +112,10 @@ ordinary TLS certificate validation remains Chromium's responsibility.
 Spellchecking defaults off. On Windows and Linux, enabling it can download
 language dictionaries from Google's CDN; the operating-system checker is used
 on macOS. The Privacy setting describes this traffic. Electron documents that
-local spellchecking does not send typed text to Google. Controlled NetLog tests
+local spellchecking does not send typed text to Google. Because Electron can
+initialize dictionary downloads even when checking is disabled, new sessions
+first use an inert local download URL. Only opting in restores the CDN URL.
+Controlled NetLog tests
 check that disabled spellchecking does not request dictionaries. Enabling it
 requires a restart for existing tabs and the sidebar. These tests
 are useful for discovering connections but are not a complete packet

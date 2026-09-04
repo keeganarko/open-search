@@ -56,7 +56,8 @@ an update rehearsal, and independent testing remain release requirements.
 
 Domain blocking does not provide Chrome Safe Browsing coverage. Read the
 [security comparison](docs/SECURITY-AUDIT-2026-09-04.md) and
-[remaining release requirements](docs/SECURITY-OPERATIONS.md).
+[remaining release requirements](docs/SECURITY-OPERATIONS.md). The
+[validation record](docs/SECURITY-VALIDATION-2026-09-04.md) lists exactly what passed.
 
 ## Take a first look
 
