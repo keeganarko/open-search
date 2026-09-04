@@ -1,0 +1,81 @@
+{
+  "name": "open-search",
+  "version": "0.1.0",
+  "description": "Open Search — a local, AI-native browser. Dia-shaped, yours.",
+  "main": "./out/main/index.js",
+  "author": "Keegan Arko",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "postinstall": "electron-rebuild -f -w better-sqlite3 || true",
+    "dist": "electron-vite build && electron-builder --mac --arm64",
+    "dist:win": "electron-vite build && electron-builder --win --x64",
+    "dist:linux": "electron-vite build && electron-builder --linux --x64"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.123.0",
+    "@ghostery/adblocker-electron": "^2.11.3",
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "@mozilla/readability": "^0.6.0",
+    "better-sqlite3": "^13.0.0",
+    "pptxgenjs": "^4.0.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^38.0.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^4.0.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "typescript": "^5.9.2",
+    "vite": "^7.0.0",
+    "vitest": "^3.2.7"
+  },
+  "build": {
+    "appId": "com.keeganarko.opensearch",
+    "productName": "Open Search",
+    "directories": {
+      "output": "release",
+      "buildResources": "resources"
+    },
+    "files": [
+      "out/**/*",
+      "resources/**/*"
+    ],
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Network",
+      "target": [
+        "AppImage"
+      ]
+    }
+  }
+}

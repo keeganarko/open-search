@@ -1,0 +1,13 @@
+node_modules/
+out/
+release/
+dist/
+*.tsbuildinfo
+
+# Local working memory — never committed, never pushed. See context/README.md.
+context/
+
+.DS_Store
+*.log
+.env
+.env.*

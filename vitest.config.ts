@@ -1,0 +1,15 @@
+import { defineConfig } from 'vitest/config'
+import { resolve } from 'node:path'
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      '@shared': resolve(__dirname, 'src/shared'),
+      // Both are unavailable outside a packaged Electron process; see the
+      // comments in each stub for what they stand in for.
+      electron: resolve(__dirname, 'test/stubs/electron.ts'),
+      'better-sqlite3': resolve(__dirname, 'test/stubs/better-sqlite3.ts')
+    }
+  },
+  test: { environment: 'node', include: ['test/**/*.test.ts'] }
+})
