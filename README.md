@@ -2,6 +2,8 @@
 
 # Voyager
 
+[![Security checks](https://github.com/keeganarko/voyager/actions/workflows/security.yml/badge.svg)](https://github.com/keeganarko/voyager/actions/workflows/security.yml)
+
 ### A little less browsing. A little more understanding.
 
 A desktop browser built around your work. Organize your tabs, explore pages
