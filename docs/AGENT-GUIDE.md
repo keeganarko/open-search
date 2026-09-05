@@ -121,10 +121,10 @@ and consenting test accounts. The Windows packaged suite passed all 23 checks, i
 and approved replay ([evidence run](https://github.com/keeganarko/voyager/actions/runs/33943244702)).
 The source suite passed 167 tests. On this WSL host, 21 of 23 packaged checks
 passed; its OS vault is unavailable and its desktop did not give the test window
-input focus. Those two host-dependent checks passed on Windows. The same CI run built and
-verified a separate Windows preview with test fixtures removed. The preview is
-unsigned and remains a testing build; it is available as the
-**voyager-windows-preview** artifact on that run.
+input focus. Those two host-dependent checks passed on Windows. Windows previews are built
+separately with test fixtures removed. They are unsigned testing builds. Download
+the **voyager-windows-preview** artifact from the latest successful
+[Security checks run](https://github.com/keeganarko/voyager/actions/workflows/security.yml).
 
 This is an initial implementation of the [architecture](AGENT-ARCHITECTURE.md).
 The design's arbitrary hierarchical delegation, semantic monitoring, general
