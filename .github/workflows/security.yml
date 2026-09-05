@@ -79,6 +79,17 @@ jobs:
       - name: Run packaged browser security checks
         shell: pwsh
         run: ./scripts/run-security-runtime.ps1
+      # Rebuild without test fixtures before producing a manual-test application.
+      # This unsigned preview is separate from the signed release workflow.
+      - run: npm run build
+      - name: Package Windows preview
+        run: npx electron-builder --win --x64 --dir --publish never -c.directories.output=release/preview
+      - run: node scripts/verify-asar.mjs release/preview/win-unpacked/resources/app.asar
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: voyager-windows-preview
+          path: release/preview/win-unpacked/
+          retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
