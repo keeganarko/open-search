@@ -1,4 +1,5 @@
 import VoyagerMark from './VoyagerMark'
+import Favorites from './Favorites'
 import { useEffect, useState, type DragEvent, type JSX } from 'react'
 import type { FullWindowState, TabState, TabGroup } from '@shared/types'
 
@@ -153,8 +154,11 @@ export default function Rail({
       {/* macOS insets its traffic lights here; every platform drags by it. */}
       <div className="rail-grab" />
 
+      <Favorites key={state.profileId} items={state.shortcuts} tabs={state.tabs} active={active}
+        profileId={state.profileId} />
+
       {pinned.length > 0 && (
-        <div className="pinned">
+        <div className="pinned" aria-label="Pinned tabs">
           {pinned.map((t) => (
             <button
               key={t.id}

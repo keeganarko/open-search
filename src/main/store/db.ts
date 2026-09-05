@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { databaseKey } from './databaseKey'
 import { openEncryptedDatabase } from './encryptedDatabase'
+import { MAX_SHORTCUTS, STARTER_SHORTCUTS, shortcutUrl } from '@shared/bookmarks'
 import type {
   MemoryItem, MemoryKind, Skill, HistoryEntry, Conversation, ChatMessage,
   Profile, TabGroup, McpServerConfig, Brief, Bookmark, SitePermission, SavedLogin
@@ -161,6 +162,7 @@ function migrate(): void {
   `)
 
   addColumn('saved_tabs', 'window_key', "TEXT NOT NULL DEFAULT 'w1'")
+  addColumn('bookmarks', 'shortcut', 'INTEGER NOT NULL DEFAULT 0')
 }
 
 /**
@@ -232,6 +234,7 @@ export function deleteProfile(id: string): void {
       db.prepare(`DELETE FROM ${table} WHERE profile_id=?`).run(profileId)
     }
     db.prepare('DELETE FROM profiles WHERE id=?').run(profileId)
+    db.prepare('DELETE FROM kv WHERE key=?').run(`bookmark-shortcuts-initialized:${profileId}`)
   })
   erase(id)
 }
@@ -614,23 +617,76 @@ export function loadMessages(conversationId: string): ChatMessage[] {
 
 // ——— bookmarks —————————————————————————————————————————————
 
-export function addBookmark(profileId: string, url: string, title: string, folder: string | null): Bookmark {
+const bookmarkWatchers = new Set<(profileId: string) => void>()
+export function watchBookmarks(fn: (profileId: string) => void): () => void {
+  bookmarkWatchers.add(fn)
+  return () => { bookmarkWatchers.delete(fn) }
+}
+function bookmarksChanged(profileId: string): void {
+  for (const fn of bookmarkWatchers) fn(profileId)
+}
+const bookmarkRow = (row: any): Bookmark => ({ ...row, shortcut: !!row.shortcut })
+
+export function addBookmark(profileId: string, url: string, title: string, folder: string | null, shortcut = false): Bookmark {
+  if (shortcut) url = shortcutUrl(url)
+  const existing = db.prepare('SELECT * FROM bookmarks WHERE profile_id=? AND url=? LIMIT 1').get(profileId, url)
+  if (existing) {
+    const row = bookmarkRow(existing)
+    return shortcut ? setBookmarkShortcut(profileId, row.id, true) : row
+  }
+  if (shortcut && listBookmarkShortcuts(profileId).length >= MAX_SHORTCUTS) throw new Error(`You can keep up to ${MAX_SHORTCUTS} favorites.`)
   const row: Bookmark = {
     id: randomUUID(), profile_id: profileId, url, title,
-    folder, created_at: new Date().toISOString()
+    folder, shortcut, created_at: new Date().toISOString()
   }
-  db.prepare('INSERT INTO bookmarks(id,profile_id,url,title,folder,created_at) VALUES(?,?,?,?,?,?)')
-    .run(row.id, row.profile_id, row.url, row.title, row.folder, row.created_at)
+  db.prepare('INSERT INTO bookmarks(id,profile_id,url,title,folder,shortcut,created_at) VALUES(?,?,?,?,?,?,?)')
+    .run(row.id, row.profile_id, row.url, row.title, row.folder, row.shortcut ? 1 : 0, row.created_at)
+  bookmarksChanged(profileId)
   return row
 }
 
 export function listBookmarks(profileId: string): Bookmark[] {
   return db.prepare('SELECT * FROM bookmarks WHERE profile_id=? ORDER BY created_at DESC')
-    .all(profileId) as Bookmark[]
+    .all(profileId).map(bookmarkRow)
 }
 
-export function deleteBookmark(id: string): void {
-  db.prepare('DELETE FROM bookmarks WHERE id=?').run(id)
+export function getBookmark(profileId: string, id: string): Bookmark | null {
+  const row = db.prepare('SELECT * FROM bookmarks WHERE profile_id=? AND id=?').get(profileId, id)
+  return row ? bookmarkRow(row) : null
+}
+
+export function listBookmarkShortcuts(profileId: string): Bookmark[] {
+  return db.prepare('SELECT * FROM bookmarks WHERE profile_id=? AND shortcut=1 ORDER BY created_at, rowid')
+    .all(profileId).map(bookmarkRow)
+}
+
+export function setBookmarkShortcut(profileId: string, id: string, shortcut: boolean): Bookmark {
+  const row = getBookmark(profileId, id)
+  if (!row) throw new Error('This bookmark is not in the current profile.')
+  if (shortcut) {
+    if (!/^https?:\/\//i.test(row.url)) throw new Error('Only website bookmarks can be favorites.')
+    shortcutUrl(row.url)
+    if (!row.shortcut && listBookmarkShortcuts(profileId).length >= MAX_SHORTCUTS) throw new Error(`You can keep up to ${MAX_SHORTCUTS} favorites.`)
+  }
+  db.prepare('UPDATE bookmarks SET shortcut=? WHERE id=? AND profile_id=?').run(shortcut ? 1 : 0, id, profileId)
+  bookmarksChanged(profileId)
+  return { ...row, shortcut }
+}
+
+export function ensureBookmarkShortcuts(profileId: string): void {
+  const key = `bookmark-shortcuts-initialized:${profileId}`
+  if (kvGet(key, false)) return
+  // A removed starter stays removed, including after a browser restart.
+  const seed = db.transaction(() => {
+    for (const site of STARTER_SHORTCUTS) addBookmark(profileId, site.url, site.title, null, true)
+    kvSet(key, true)
+  })
+  seed()
+}
+
+export function deleteBookmark(profileId: string, id: string): void {
+  db.prepare('DELETE FROM bookmarks WHERE id=? AND profile_id=?').run(id, profileId)
+  bookmarksChanged(profileId)
 }
 
 // ——— mcp ———————————————————————————————————————————————————

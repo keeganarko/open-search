@@ -170,6 +170,22 @@ export async function runRuntimeSecurityTests(createWindow: () => Promise<Voyage
       db.recordPermission(profile.id, `http://localhost:${port}`, 'notifications', false)
       assert.equal(await wc.executeJavaScript('Notification.requestPermission()'), 'denied')
     })
+    await run('Favorite bookmark IPC opens an existing tab and enforces profile ownership', async () => {
+      const ui = win!.chrome.webContents
+      const address = `http://localhost:${port}/permissions`
+      const favorite = await ui.executeJavaScript(`window.voyager.bookmarks.addShortcut(${JSON.stringify(address)}, 'Fixture favorite', ${JSON.stringify(profile.id)})`)
+      assert(db.getBookmark(profile.id, favorite.id)?.shortcut)
+      const count = win!.tabs.list().length
+      await ui.executeJavaScript(`window.voyager.bookmarks.open(${JSON.stringify(favorite.id)}, ${JSON.stringify(profile.id)})`)
+      assert.equal(win!.tabs.list().length, count, 'Opening the same favorite must reuse the tab.')
+      assert.equal(win!.tabs.activeId, tab.id)
+      const other = db.addBookmark('fixture-other-profile', address, 'Other profile', null, true)
+      await assert.rejects(ui.executeJavaScript(`window.voyager.bookmarks.setShortcut(${JSON.stringify(other.id)}, false, ${JSON.stringify(profile.id)})`))
+      await assert.rejects(ui.executeJavaScript(`window.voyager.bookmarks.open(${JSON.stringify(other.id)}, ${JSON.stringify(profile.id)})`))
+      assert(db.getBookmark('fixture-other-profile', other.id)?.shortcut)
+      await ui.executeJavaScript(`window.voyager.bookmarks.setShortcut(${JSON.stringify(favorite.id)}, false, ${JSON.stringify(profile.id)})`)
+      assert.equal(db.getBookmark(profile.id, favorite.id)?.shortcut, false, 'Removing a favorite preserves its bookmark.')
+    })
     await logging.netLog.stopLogging()
     copyFileSync(netlog, join(dirname(report), 'runtime-network.json'))
     logging = undefined
@@ -182,7 +198,7 @@ export async function runRuntimeSecurityTests(createWindow: () => Promise<Voyage
     http?.close(); https?.close()
     clearTimeout(deadline)
   }
-  const passed = results.length >= 15 && results.every((result) => result.passed)
+  const passed = results.length >= 16 && results.every((result) => result.passed)
   writeFileSync(report, JSON.stringify({ passed, versions: process.versions, platform: process.platform,
     isolatedProfile: app.getPath('userData'), fixtureRequests: hits, results,
     limitations: ['Automated tests, not an independent penetration test.',

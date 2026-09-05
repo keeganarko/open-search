@@ -65,6 +65,15 @@ Domain blocking does not provide Chrome Safe Browsing coverage. Read the
 2. Open the Voyager sidebar and ask about the current page.
 3. Use `@` to add another tab, or `/` to choose a skill.
 
+## Keep favorite sites close
+
+<img src="docs/media/favorites.png" width="235" alt="Favorite bookmark icons for Gmail, YouTube and two sample sites, with an add button">
+
+*Favorites in a sample workspace.* Click an icon to open its saved page. Use
+**+** to add the current page or another address, and **Edit** to remove icons
+or choose from existing bookmarks. Favorites stay with their profile after tabs
+close and the browser restarts.
+
 ## Develop or package
 
 Windows packaging also requires Visual Studio C++ Build Tools and the Windows

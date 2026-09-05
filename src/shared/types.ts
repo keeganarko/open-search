@@ -313,6 +313,7 @@ export interface Bookmark {
   url: string
   title: string
   folder: string | null
+  shortcut: boolean
   created_at: string
 }
 
@@ -322,6 +323,7 @@ export interface FullWindowState extends WindowState {
   groups: TabGroup[]
   profile: Profile
   profiles: Profile[]
+  shortcuts: Bookmark[]
 }
 
 // ——— Site permissions ——————————————————————————————————————

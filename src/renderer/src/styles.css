@@ -108,6 +108,47 @@ a { color: var(--accent); }
 :root[data-platform='win32'] .rail-grab,
 :root[data-platform='linux'] .rail-grab { height: 6px; }
 
+/* Favorite bookmarks remain available independently of open tabs. */
+.favorites {
+  flex: none; padding: 7px 0 10px; margin-bottom: 7px;
+  border-bottom: 1px solid var(--line); max-height: 55vh; overflow-y: auto;
+}
+.favorites-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 3px 7px; }
+.favorites-heading > span { font-size: 10px; font-weight: 600; color: var(--ink-muted); letter-spacing: .07em; text-transform: uppercase; }
+.favorites-heading button { background: transparent; color: var(--ink-muted); font-size: 11px; padding: 2px 4px; border-radius: 4px; }
+.favorites-heading button:hover { color: var(--ink); background: var(--bg-active); }
+.favorites-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); gap: 6px; max-height: 150px; overflow-y: auto; padding: 3px; }
+.favorite-item { position: relative; min-width: 0; }
+.favorite-tile {
+  width: 100%; height: 39px; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-sunken); border: 1px solid var(--line); border-radius: 10px;
+  transition: background .12s, border-color .12s;
+}
+.favorite-tile:hover { background: var(--bg-active); border-color: var(--ink-faint); }
+.favorite-tile.active { background: var(--bg-raised); border-color: var(--accent); }
+.favorite-tile:focus-visible, .favorite-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.site-icon { width: 22px; height: 22px; flex: none; object-fit: contain; border-radius: 3px; }
+.site-initial { display: inline-flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 650; color: var(--ink); }
+.favorite-add { color: var(--ink-muted); font-size: 23px; font-weight: 300; border-style: dashed; background: transparent; }
+.favorite-remove { position: absolute; right: -3px; top: -3px; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-raised); color: var(--ink); border: 1px solid var(--line); font-size: 15px; display: grid; place-items: center; line-height: 1; }
+.favorite-remove:hover { background: var(--danger); color: white; }
+.favorite-form { margin: 9px 2px 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raised); display: grid; gap: 9px; }
+.favorite-form-title { font-size: 12px; font-weight: 600; }
+.favorite-form label { display: grid; gap: 4px; font-size: 11px; color: var(--ink-muted); }
+.favorite-form label .muted { display: contents; }
+.favorite-form input { width: 100%; min-width: 0; font-size: 12px; }
+.favorite-form-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.favorite-form .btn { font-size: 11px; padding: 5px 8px; }
+.favorite-current { width: 100%; }
+.favorite-manage { background: transparent; color: var(--ink-muted); font-size: 11px; padding: 9px 3px 0; text-decoration: underline; }
+.favorite-picker { display: grid; gap: 3px; margin-top: 8px; max-height: 180px; overflow-y: auto; }
+.favorite-picker button { display: flex; align-items: center; gap: 7px; padding: 7px; text-align: left; font-size: 12px; }
+.favorite-picker button:hover { background: var(--bg-active); }
+.favorite-picker .site-icon { width: 17px; height: 17px; font-size: 13px; }
+.favorite-picker-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.favorite-picker p { font-size: 11px; color: var(--ink-muted); padding: 0 4px; }
+.favorite-error { margin: 8px 3px; font-size: 12px; line-height: 1.4; color: var(--danger); overflow-wrap: anywhere; }
+
 /* ——— pinned tiles ———————————————————————————————————————— */
 .pinned {
   flex: none; display: flex; flex-wrap: wrap; gap: 4px;

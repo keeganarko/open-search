@@ -7,6 +7,7 @@ import { TabManager } from './tabs'
 import type { FullWindowState, PermissionAsk, Profile, SplitLayout } from '@shared/types'
 import { getSettings } from '../store/settings'
 import { configureSpellcheck } from '../security/spellcheck'
+import { IPC } from '@shared/ipc'
 import * as db from '../store/db'
 
 /** Chrome geometry. The renderer mirrors these in CSS custom properties. */
@@ -91,6 +92,7 @@ export class VoyagerWindow extends EventEmitter {
     super()
     this.profile = profile
     this.key = key
+    db.ensureBookmarkShortcuts(profile.id)
     configureSpellcheck(session.defaultSession, getSettings().privacy.spellcheckEnabled)
 
     const mac = process.platform === 'darwin'
@@ -142,6 +144,12 @@ export class VoyagerWindow extends EventEmitter {
 
     this.tabs = new TabManager(profile, key)
     this.wireTabs()
+    const unwatchBookmarks = db.watchBookmarks((profileId) => {
+      if (this.profile.id !== profileId) return
+      this.pushState()
+      post(this.chrome.webContents, IPC.bookmarksChanged, profileId)
+    })
+    this.window.once('closed', unwatchBookmarks)
 
     this.window.on('resize', () => this.layout())
     this.window.on('enter-full-screen', () => this.layout())
@@ -409,6 +417,7 @@ export class VoyagerWindow extends EventEmitter {
   // ——— profile ————————————————————————————————————————————
 
   switchProfile(profile: Profile): void {
+    db.ensureBookmarkShortcuts(profile.id)
     this.tabs.persist()
     this.tabs.destroy()
     for (const id of [...this.attached]) this.attached.delete(id)
@@ -434,7 +443,8 @@ export class VoyagerWindow extends EventEmitter {
       tabs: this.tabs.list(),
       groups: this.tabs.groups,
       profile: this.profile,
-      profiles: db.listProfiles()
+      profiles: db.listProfiles(),
+      shortcuts: db.listBookmarkShortcuts(this.profile.id)
     }
   }
 

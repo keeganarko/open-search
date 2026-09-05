@@ -156,7 +156,13 @@ const api = {
     add: (url: string, title: string, folder?: string) =>
       invoke<Bookmark>(IPC.bookmarkAdd, url, title, folder),
     list: () => invoke<Bookmark[]>(IPC.bookmarkList),
-    remove: (id: string) => invoke<Bookmark[]>(IPC.bookmarkDelete, id)
+    remove: (id: string, profileId?: string) => invoke<Bookmark[]>(IPC.bookmarkDelete, id, profileId),
+    addShortcut: (url: string, title: string, profileId: string) =>
+      invoke<Bookmark>(IPC.bookmarkShortcutAdd, url, title, profileId),
+    setShortcut: (id: string, enabled: boolean, profileId: string) =>
+      invoke<Bookmark>(IPC.bookmarkShortcutSet, id, enabled, profileId),
+    open: (id: string, profileId: string) => invoke<void>(IPC.bookmarkOpen, id, profileId),
+    onChanged: (fn: (profileId: string) => void) => on<string>(IPC.bookmarksChanged, fn)
   },
 
   // ——— settings ————————————————————————————————————————————

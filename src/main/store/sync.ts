@@ -6,6 +6,7 @@ import { getSettings, setSettings } from './settings'
 import { mcp } from '../agent/mcp'
 import { validateMcpConfig } from '../agent/mcp'
 import { z } from 'zod'
+import { MAX_SHORTCUTS } from '@shared/bookmarks'
 
 const shortText = z.string().max(1_000)
 const date = z.string().max(100)
@@ -23,7 +24,7 @@ const memorySchema = z.object({
 })
 const bookmarkSchema = z.object({
   url: z.string().max(8_192).url().refine((s) => /^https?:/.test(s)),
-  title: shortText, folder: shortText.nullable().optional()
+  title: shortText, folder: shortText.nullable().optional(), shortcut: z.boolean().optional()
 })
 
 const MAGIC = 'VOYAGER-SYNC-1'
@@ -164,7 +165,9 @@ export async function importSync(
     summary.memory++
   }
   for (const b of bookmarks) {
-    db.addBookmark(profileId, b.url, b.title, b.folder ?? null)
+    // Old bundles remain ordinary bookmarks; overflow stays in the bookmark list.
+    db.addBookmark(profileId, b.url, b.title, b.folder ?? null,
+      !!b.shortcut && db.listBookmarkShortcuts(profileId).length < MAX_SHORTCUTS)
     summary.bookmarks++
   }
   for (const c of connectors) {

@@ -86,6 +86,26 @@ Before opening a pull request, run `npm run typecheck`, `npm test`, and
 - Built-in and user-created skills, local memory, daily briefs, encrypted sync,
   MCP connectors, and PowerPoint/Markdown generation.
 
+## Favorite bookmarks
+
+The top-left **Favorites** row starts with Gmail and YouTube. Clicking a favorite
+opens its saved URL, or activates a tab already at that URL in the same window.
+Closing the tab does not remove the bookmark.
+
+- Select **+ → Add current page**, or enter a website address and an optional name.
+- Select **Edit** (or right-click an icon), then **×** to remove its icon. The
+  bookmark remains in the bookmark list.
+- Select **Edit → Choose from bookmarks** to add or remove existing bookmarks
+  directly in the rail. The Bookmarks panel also has a favorite star per item.
+- Favorites belong to the current profile, persist across restarts, and travel
+  in encrypted bookmark sync. Up to 24 can appear in each profile; additional
+  imported items remain ordinary bookmarks.
+
+Gmail and YouTube use bundled artwork. Other sites use an available safe local
+page icon or a name initial. The favorites row does not contact a favicon service
+or load a destination until you click it. Removed starter shortcuts are not
+recreated on the next launch.
+
 ## Opening experience
 
 The first window in each launch can show a slow Voyager wordmark reveal with a

@@ -32,6 +32,7 @@ import { generateDeck, generateReport, revealFile } from './agent/deck'
 import { exportSync, importSync, SYNC_FILENAME } from './store/sync'
 import Anthropic from '@anthropic-ai/sdk'
 import { beginWriting, applyWriting } from './browser/writing'
+import { shortcutUrl } from '@shared/bookmarks'
 
 /** Resolve exact UI/page ownership; unknown senders have no authority. */
 type ResolveWindow = (senderId: number) => VoyagerWindow | null
@@ -377,7 +378,36 @@ export function registerIpc(
   handle(IPC.bookmarkAdd, (url: string, title: string, folder?: string) =>
     db.addBookmark(win().profile.id, url, title, folder ?? null))
   handle(IPC.bookmarkList, () => db.listBookmarks(win().profile.id))
-  handle(IPC.bookmarkDelete, (id: string) => { db.deleteBookmark(id); return db.listBookmarks(win().profile.id) })
+  const bookmarkWindow = (profileId: string): VoyagerWindow => {
+    const w = win()
+    if (w.profile.id !== profileId) throw new Error('The profile changed. Please try again.')
+    return w
+  }
+  handle(IPC.bookmarkDelete, (id: string, profileId?: string) => {
+    const w = profileId === undefined ? win() : bookmarkWindow(profileId)
+    db.deleteBookmark(w.profile.id, id)
+    return db.listBookmarks(w.profile.id)
+  })
+  handle(IPC.bookmarkShortcutAdd, (url: string, title: string, profileId: string) => {
+    const w = bookmarkWindow(profileId)
+    const address = shortcutUrl(url)
+    if (typeof title !== 'string') throw new Error('Enter a name for this favorite.')
+    return db.addBookmark(w.profile.id, address, title.trim().slice(0, 200) || new URL(address).hostname, null, true)
+  })
+  handle(IPC.bookmarkShortcutSet, (id: string, enabled: boolean, profileId: string) => {
+    const w = bookmarkWindow(profileId)
+    if (typeof enabled !== 'boolean') throw new Error('Invalid favorite setting.')
+    return db.setBookmarkShortcut(w.profile.id, id, enabled)
+  })
+  handle(IPC.bookmarkOpen, (id: string, profileId: string) => {
+    const w = bookmarkWindow(profileId)
+    const bookmark = db.getBookmark(w.profile.id, id)
+    if (!bookmark) throw new Error('This bookmark is not in the current profile.')
+    const address = shortcutUrl(bookmark.url)
+    const existing = w.tabs.list().find((tab) => tab.url === address)
+    if (existing) w.tabs.activate(existing.id)
+    else w.tabs.create({ url: address })
+  })
 
   // ——— settings ————————————————————————————————————————————
   handle(IPC.settingsGet, publicSettings)

@@ -177,7 +177,7 @@ export default function App(): JSX.Element {
           {panel === 'memory' && <Memory onClose={close} />}
           {panel === 'connectors' && <Connectors onClose={close} toast={toast} />}
           {panel === 'history' && <History onClose={close} />}
-          {panel === 'bookmarks' && <Bookmarks onClose={close} />}
+          {panel === 'bookmarks' && <Bookmarks key={state.profileId} profileId={state.profileId} onClose={close} />}
           {panel === 'brief' && <Brief onClose={close} toast={toast} />}
           {panel === 'deck-composer' && <Compose onClose={close} toast={toast} />}
           {panel === 'downloads' && <Downloads onClose={close} />}
