@@ -118,12 +118,13 @@ exercise orchestration without sending real browsing data to a provider. No
 Anthropic test key was available in this environment; live model quality and
 third-party account workflows still require evaluation with configured providers
 and consenting test accounts. The Windows packaged suite passed all 23 checks, including trusted recording
-and approved replay ([evidence run](https://github.com/keeganarko/voyager/actions/runs/33942977973)).
+and approved replay ([evidence run](https://github.com/keeganarko/voyager/actions/runs/33943244702)).
 The source suite passed 167 tests. On this WSL host, 21 of 23 packaged checks
 passed; its OS vault is unavailable and its desktop did not give the test window
-input focus. Those two host-dependent checks passed on Windows. The linked run
-subsequently failed at preview packaging; that was separate from its successful
-security checks.
+input focus. Those two host-dependent checks passed on Windows. The same CI run built and
+verified a separate Windows preview with test fixtures removed. The preview is
+unsigned and remains a testing build; it is available as the
+**voyager-windows-preview** artifact on that run.
 
 This is an initial implementation of the [architecture](AGENT-ARCHITECTURE.md).
 The design's arbitrary hierarchical delegation, semantic monitoring, general
