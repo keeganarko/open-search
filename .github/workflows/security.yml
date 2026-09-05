@@ -32,6 +32,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm test
+      - run: node scripts/test-browser-import.mjs
       - run: node scripts/test-native-storage.mjs
       - run: node scripts/test-release-signing.mjs
       - run: npm run build

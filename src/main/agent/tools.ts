@@ -109,6 +109,23 @@ export function browserTools(win: VoyagerWindow): VoyagerTool[] {
     },
 
     {
+      actionClass: 'read',
+      describe: (i) => `Search bookmarks for “${i.query}”`,
+      definition: {
+        name: 'search_bookmarks',
+        description: 'Search saved bookmarks, including imported Chrome bookmarks, by title, URL, or folder. Use for saved-page questions. Results are saved links, not page contents.',
+        input_schema: jsonSchema({ query: { type: 'string' }, limit: { type: 'number', description: 'Default 20, max 100' } }, ['query'])
+      },
+      run: async (i) => {
+        if (getSettings().privacy.paused) return 'Page access is paused.'
+        const rows = db.searchBookmarks(win.profile.id, String(i.query).slice(0, 2000), Math.max(1, Math.min(Number(i.limit) || 20, 100)))
+          .filter((b) => !isExcluded(b.url))
+        if (!rows.length) return 'No matching bookmarks.'
+        return escapeContextText(rows.map((b) => `- ${b.title}\n  ${b.url}${b.folder ? `\n  Folder: ${b.folder}` : ''}`).join('\n'))
+      }
+    },
+
+    {
       actionClass: 'external_write',
       describe: (i) => `Open ${prettyHost(String(i.url))}`,
       definition: {

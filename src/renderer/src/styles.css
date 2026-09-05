@@ -1,7 +1,74 @@
+/* Agent controls belong to browser chrome; no floating page widgets. */
+.agent-launcher { margin: 6px 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg-raised); color: var(--ink); display: flex; gap: 8px; align-items: center; min-height: 36px; font-weight: 600; text-align: left; }
+.browser-toolbar .agent-launcher { margin: 0; padding: 5px 10px; min-height: 32px; flex-shrink: 0; border-radius: 18px; }
+.agent-launcher:hover { background: var(--bg-hover); border-color: var(--line-strong); }
+.agent-count { margin-left: auto; font-size: 10px; border-radius: 5px; padding: 2px 5px; background: var(--bg-sunken); }
+.agent-launcher.needs-review .agent-count { color: var(--warn); }
+.agents-scroll { overflow-y: auto; padding: 18px 16px 24px; min-height: 0; }
+.agents-intro h2 { font-size: 18px; letter-spacing: -.4px; line-height: 1.3; margin: 2px 0 7px; }
+.agents-intro p, .agent-footnote, .agent-form p { font-size: 12px; color: var(--ink-muted); line-height: 1.55; margin: 0 0 16px; }
+.agent-section-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 600; margin: 19px 0 10px; }
+.agent-section-label h3 { margin: 0; }
+.agent-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.agent-tile { background: var(--bg-raised); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; color: var(--ink); text-align: left; min-height: 112px; }
+.agent-tile:hover { background: var(--bg-hover); border-color: var(--line-strong); }
+.agent-tile strong { font-size: 12px; font-weight: 600; }
+.agent-tile > span:last-child { color: var(--ink-muted); font-size: 11px; line-height: 1.45; }
+.agent-symbol { font-size: 20px; line-height: 1; font-weight: 400; margin-bottom: 2px; }
+.agent-text-button { color: var(--ink-muted); background: transparent; border: 0; padding: 5px 3px; border-radius: 4px; font-size: 11px; text-align: left; }
+.agent-text-button:hover { color: var(--ink); background: var(--bg-hover); }
+.agents-panel button:focus-visible, .agent-launcher:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.agents-panel button:disabled { opacity: .45; cursor: default; }
+.agent-form { border: 1px solid var(--line); border-radius: 10px; padding: 13px; margin-bottom: 14px; }
+.agent-form h3 { font-size: 14px; margin: 0 0 12px; }
+.agent-form > label, .agent-recording label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; margin-bottom: 12px; }
+.agent-form input:not([type=checkbox]), .agent-form textarea, .agent-form select, .agent-recording input { box-sizing: border-box; width: 100%; min-width: 0; background: var(--bg); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 6px; padding: 8px; font: inherit; }
+.agent-form textarea { resize: vertical; min-height: 70px; max-height: 280px; }
+.agent-form fieldset { border: 0; padding: 0; margin: 12px 0; min-width: 0; }
+.agent-form legend { font-size: 11px; font-weight: 600; margin-bottom: 7px; }
+.agent-form legend span { color: var(--ink-muted); font-weight: 400; }
+.agent-tab-picker { max-height: 165px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+.agent-tab-choice { display: flex; flex-direction: row; align-items: center; gap: 9px; padding: 8px; cursor: pointer; min-width: 0; }
+.agent-tab-choice:hover { background: var(--bg-hover); }
+.agent-tab-choice input { flex: none; width: 14px; height: 14px; accent-color: var(--ink); }
+.agent-tab-choice > span { min-width: 0; font-size: 11px; }
+.agent-tab-choice strong, .agent-tab-choice small { display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font-size: 11px; }
+.agent-tab-choice small { color: var(--ink-muted); margin-top: 2px; }
+.agent-consent { padding: 10px; background: var(--bg-sunken); border-radius: 7px; }
+.agent-button-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.agent-error { border: 1px solid var(--danger); color: var(--danger); border-radius: 8px; padding: 10px; font-size: 12px; margin: 10px 0; overflow-wrap: anywhere; }
+.agent-run { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+.agent-run.needs-review { border-color: var(--warn); }
+.agent-run-heading { display: flex; align-items: center; gap: 7px; width: 100%; padding: 2px 0; text-align: left; background: transparent; color: var(--ink); }
+.agent-run-heading strong { flex: 1; font-size: 12px; min-width: 0; overflow-wrap: anywhere; }
+.agent-run-heading > span:last-child { font-size: 10px; color: var(--ink-muted); flex: none; }
+.agent-status-dot { height: 6px; width: 6px; flex: none; border-radius: 50%; background: var(--ink-faint); }
+.agent-status-dot.active { background: var(--ok); }
+.agent-run-message { color: var(--ink-muted); font-size: 11px; line-height: 1.5; margin: 6px 0; overflow-wrap: anywhere; }
+.agent-run-task { font-size: 12px; padding: 8px; background: var(--bg-sunken); border-radius: 6px; white-space: pre-wrap; }
+.agent-approval { border: 1px solid var(--line-strong); background: var(--bg); border-radius: 8px; padding: 11px; margin-top: 8px; font-size: 12px; }
+.agent-approval pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 230px; overflow: auto; font: inherit; line-height: 1.5; user-select: text; }
+.agent-approval small { color: var(--ink-muted); font-size: 10px; }
+.agent-destination { font-size: 11px; color: var(--ink-muted); overflow-wrap: anywhere; margin-top: 7px; user-select: text; }
+.agent-artifact { border-top: 1px solid var(--line); padding: 10px 0 4px; margin-top: 8px; font-size: 12px; user-select: text; }
+.agent-artifact h4 { margin: 0 0 8px; font-size: 13px; }
+.agent-prose { overflow-wrap: anywhere; line-height: 1.55; }
+.agent-prose p { white-space: pre-wrap; }
+.agent-prose pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-table-scroll { overflow-x: auto; max-width: 100%; margin: 8px 0; }
+.agent-table-scroll table { border-collapse: collapse; font-size: 11px; min-width: 100%; }
+.agent-table-scroll th, .agent-table-scroll td { padding: 7px 8px; border: 1px solid var(--line); min-width: 95px; max-width: 260px; vertical-align: top; overflow-wrap: anywhere; }
+.agent-table-scroll th { background: var(--bg-sunken); text-align: left; }
+.agent-table-scroll th button { font: inherit; font-weight: 600; text-align: left; color: var(--ink); background: transparent; padding: 0; }
+.agent-sources summary, .agent-journal summary, .agent-form summary { cursor: pointer; color: var(--ink-muted); font-size: 11px; margin: 8px 0; }
+.agent-sources a { display: block; margin: 6px 0; overflow-wrap: anywhere; }
+.agent-journal p { font-size: 11px; color: var(--ink-muted); line-height: 1.5; border-top: 1px solid var(--line); padding-top: 5px; }
+.agent-journal p span { color: var(--ink); }
+.agent-recording { padding: 10px 0; font-size: 12px; }
+.agent-recording ol { padding-left: 20px; line-height: 1.7; }
+.agent-footnote { margin: 18px 0 0; font-size: 11px; }
 /* ——— tokens ——————————————————————————————————————————————— */
 :root {
-  --rail: 240px;
-  --titlebar: 38px;
 
   --bg: #f6f6f7;
   --bg-raised: #ffffff;
@@ -85,28 +152,80 @@ a { color: var(--accent); }
 /* ——— shell ——————————————————————————————————————————————— */
 .shell { display: flex; flex-direction: column; height: 100%; }
 
-.titlebar {
-  height: var(--titlebar); flex: none;
-  background: var(--bg); border-bottom: 1px solid var(--line);
-  -webkit-app-region: drag;
-}
+/* Chrome-style tabs and navigation. Heights come from shared/chromeLayout.ts. */
+.browser-chrome { flex: none; background: var(--bg-raised); box-shadow: inset 0 -1px var(--line); }
+.tab-strip { height: var(--tab-height); display: flex; align-items: end; gap: 6px; padding: 4px 144px 0 8px; background: var(--bg-sunken); -webkit-app-region: drag; }
+:root[data-platform='darwin'] .tab-strip { padding-left: 84px; padding-right: 12px; }
+.tab-strip button, .horizontal-tabs { -webkit-app-region: no-drag; }
+.tab-strip .iconbtn { align-self: center; height: 28px; width: 28px; border-radius: 50%; }
+.horizontal-tabs { display: flex; align-items: stretch; overflow-x: auto; overflow-y: hidden; min-width: 0; height: 36px; scrollbar-width: none; }
+.horizontal-tabs::-webkit-scrollbar { display: none; }
+.window-drag-space { flex: 1; min-width: 24px; height: 100%; }
+.browser-tab { display: flex; align-items: center; gap: 8px; position: relative; flex: 0 1 220px; width: 220px; min-width: 100px; padding: 0 10px; border-radius: 10px 10px 0 0; border-right: 1px solid var(--line); color: var(--ink-muted); }
+.browser-tab:hover { background: var(--bg-hover); }
+.browser-tab.active { background: var(--bg-raised); color: var(--ink); border-color: transparent; }
+.browser-tab.dragging { opacity: .45; }
+.browser-tab .site-icon { width: 16px; height: 16px; border-radius: 3px; font-size: 10px; }
+.tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; font-size: 12px; }
+.tab-close { flex: none; width: 20px; height: 20px; border-radius: 50%; font-size: 17px; }
+.tab-close:hover { background: var(--bg-active); }
+.pinned-tab { flex: none; width: 40px; min-width: 40px; padding: 0; justify-content: center; }
+.browser-tab.drop-before::before, .browser-tab.drop-after::after { content: ''; position: absolute; top: 3px; bottom: 3px; width: 2px; background: var(--accent); }
+.browser-tab.drop-before::before { left: 0; }
+.browser-tab.drop-after::after { right: 0; }
+.tab-spinner { width: 15px; height: 15px; flex: none; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.tab-group { display: flex; align-items: stretch; border-bottom: 2px solid var(--group-color); }
+.tab-group-label { align-self: center; margin: 0 5px; padding: 3px 8px; background: var(--group-color); color: white; max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+.new-tab-button { font-size: 22px; }
+.browser-toolbar { height: var(--toolbar-height); display: flex; align-items: center; gap: 8px; padding: 0 12px; }
+.browser-toolbar > .iconbtn { width: 30px; height: 30px; border-radius: 50%; font-size: 20px; }
+.address-field { display: flex; align-items: center; flex: 1; min-width: 80px; height: 34px; border-radius: 22px; background: var(--bg-sunken); padding-right: 5px; }
+.address-field:focus-within { outline: 2px solid var(--accent); }
+.omnibox { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; height: 100%; padding: 0 12px; text-align: left; border-radius: 22px; }
+.address-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.address-text.placeholder { color: var(--ink-muted); }
+.connection-indicator { font-size: 16px; color: var(--ink-muted); }
+.shield { font-size: 10px; color: var(--ink-muted); }
+.bookmark-star { font-size: 20px; border-radius: 50%; }
+.voyager-button { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 20px; color: var(--ink-muted); font-size: 12px; }
+.voyager-button svg { width: 18px; height: 18px; }
+.voyager-button:hover, .voyager-button.on { color: var(--accent); background: var(--accent-soft); }
+.profile-button { flex: none; height: 27px; width: 27px; border-radius: 50%; color: white; font-weight: 600; }
+.bookmarks-bar { display: flex; align-items: center; gap: 6px; height: var(--bookmarks-height); padding: 0 12px 3px; }
+.bookmark-items { flex: 1; min-width: 0; display: flex; overflow-x: auto; scrollbar-width: none; gap: 3px; }
+.bookmark-item { display: flex; align-items: center; gap: 7px; flex: none; height: 26px; max-width: 170px; padding: 0 8px; border-radius: 6px; font-size: 11px; white-space: nowrap; }
+.bookmark-item:hover { background: var(--bg-hover); }
+.bookmark-item span { overflow: hidden; text-overflow: ellipsis; }
+.bookmark-item .site-icon { width: 15px; height: 15px; font-size: 9px; border-radius: 3px; }
+.bookmark-divider { height: 16px; width: 1px; background: var(--line); }
+@media (max-width: 850px) { .voyager-button span { display: none; } .browser-toolbar { gap: 5px; padding-inline: 8px; } .browser-tab { width: 175px; } }
 
-/* ——— left rail ——————————————————————————————————————————— */
-.rail {
-  flex: none; min-height: 0;
-  display: flex; flex-direction: column;
-  padding: 0 8px 8px;
-  background: var(--bg); border-right: 1px solid var(--line);
-  -webkit-app-region: drag;
-}
-.rail > * { -webkit-app-region: no-drag; }
-/* macOS insets its traffic lights at x:16 y:12 — into this. It has to win the
-   drag back from `.rail > *` above, which is why it comes after: same
-   specificity, later rule. Windows and Linux already have their own strip, so
-   here it is only a small gap. */
-.rail-grab { height: 38px; flex: none; -webkit-app-region: drag; }
-:root[data-platform='win32'] .rail-grab,
-:root[data-platform='linux'] .rail-grab { height: 6px; }
+.import-content { max-width: 820px; margin: 10px auto 40px; line-height: 1.6; }
+.import-heading { display: flex; align-items: center; gap: 18px; }
+.import-heading h2 { font-size: 25px; font-weight: 600; margin: 0; letter-spacing: -.6px; }
+.import-heading p { margin: 3px 0; color: var(--ink-muted); }
+.import-symbol { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 16px; background: var(--bg-sunken); font-size: 30px; }
+.import-destination { margin: 20px 0; color: var(--ink-muted); }
+.import-card { border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; margin: 16px 0; background: var(--bg-raised); }
+.import-content h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.import-card p { color: var(--ink-muted); margin: 6px 0 14px; }
+.import-card .field { display: flex; flex-direction: column; align-items: stretch; gap: 7px; margin-top: 16px; }
+.import-card .check { margin: 12px 0; }
+.import-card .row { flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.import-file-row { display: flex; align-items: center; gap: 24px; padding: 12px 0; }
+.import-file-row + .import-file-row { border-top: 1px solid var(--line); }
+.import-file-row > div { flex: 1; }
+.import-file-row .btn { flex: none; }
+.import-file-row p { margin: 3px 0 0; font-size: 12px; }
+.import-explainer { padding: 12px 4px; color: var(--ink-muted); font-size: 12px; }
+.import-explainer h3 { color: var(--ink); }
+.import-note { padding: 10px 12px; background: var(--bg-sunken); border-radius: 6px; font-size: 12px; }
+.import-error { padding: 12px; border: 1px solid var(--danger); border-radius: 8px; color: var(--danger); }
+.import-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+.import-totals > div { display: flex; flex-direction: column; padding: 16px; background: var(--bg-sunken); border-radius: 8px; }
+.import-totals strong { font-size: 28px; font-weight: 500; }
+.import-totals span { color: var(--ink-muted); font-size: 12px; }
 
 /* Favorite bookmarks remain available independently of open tabs. */
 .favorites {
@@ -167,7 +286,6 @@ a { color: var(--accent); }
 .pintile .letter { font-size: 13px; font-weight: 600; color: var(--ink-muted); }
 
 /* ——— nav + omnibox ——————————————————————————————————————— */
-.rail-nav { flex: none; display: flex; align-items: center; gap: 2px; }
 .iconbtn {
   width: 28px; height: 28px; flex: none;
   display: flex; align-items: center; justify-content: center;
@@ -175,101 +293,6 @@ a { color: var(--accent); }
 }
 .iconbtn:hover:not(:disabled) { background: var(--bg-hover); color: var(--ink); }
 .iconbtn.on { background: var(--accent-soft); color: var(--accent); }
-
-.omnibox {
-  flex: none; height: 30px; margin: 6px 0 10px;
-  display: flex; align-items: center; gap: 8px;
-  padding: 0 11px; border-radius: 15px;
-  background: var(--bg-sunken); border: 1px solid transparent;
-  min-width: 0; user-select: none;
-}
-.omnibox:hover { border-color: var(--line); }
-.omnibox .lock { color: var(--ink-faint); font-size: 11px; flex: none; }
-.omnibox .url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.omnibox .url .host { color: var(--ink); }
-.omnibox .url .rest { color: var(--ink-faint); }
-.omnibox .shield {
-  font-size: 10px; font-variant-numeric: tabular-nums;
-  color: var(--ink-faint); flex: none;
-}
-
-/* ——— the tab list ———————————————————————————————————————— */
-.rail-tabs {
-  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
-  display: flex; flex-direction: column; gap: 1px;
-  margin: 0 -4px; padding: 0 4px;
-  scrollbar-width: thin;
-}
-.grouprun { display: flex; flex-direction: column; gap: 1px; }
-
-.group-chip {
-  display: flex; align-items: center; gap: 6px;
-  height: 22px; margin: 7px 0 2px; padding: 0 8px;
-  border-radius: 20px; flex: none;
-  font-size: 11px; font-weight: 600; letter-spacing: 0.01em;
-}
-.group-chip .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
-.group-chip .gname {
-  flex: 1; text-align: left; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap;
-}
-.group-chip .count { opacity: 0.7; flex: none; }
-
-.vtab {
-  display: flex; align-items: center; gap: 8px;
-  height: 32px; flex: none; padding: 0 8px;
-  border-radius: var(--radius-sm);
-  position: relative;
-}
-.vtab:hover { background: var(--bg-hover); }
-.vtab.active { background: var(--bg-raised); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.07); }
-.vtab.dragging { opacity: 0.45; }
-/* A vertical list drops above or below a row, so the marker is a rule across
-   it rather than a bar down its side. */
-.vtab.drop-before::before,
-.vtab.drop-after::after {
-  content: ''; position: absolute; left: 6px; right: 6px; height: 2px;
-  background: var(--accent); border-radius: 2px;
-}
-.vtab.drop-before::before { top: 0; }
-.vtab.drop-after::after { bottom: 0; }
-
-.vtab .favicon { width: 15px; height: 15px; flex: none; border-radius: 3px; }
-.vtab .label {
-  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 12.5px;
-}
-.vtab .x {
-  width: 18px; height: 18px; flex: none; border-radius: 4px;
-  display: none; align-items: center; justify-content: center;
-  color: var(--ink-muted); font-size: 14px; line-height: 1;
-}
-.vtab:hover .x, .vtab.active .x { display: flex; }
-.vtab .x:hover { background: var(--bg-active); color: var(--ink); }
-.vtab .spinner {
-  width: 12px; height: 12px; flex: none;
-  border: 1.5px solid var(--line-strong); border-top-color: var(--accent);
-  border-radius: 50%; animation: spin 0.7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* Sits below the scroller, never inside it, so a long tab list cannot push the
-   + out of reach — the whole point of moving it off the top-right corner. */
-.newtab {
-  flex: none; height: 34px; margin-top: 7px;
-  display: flex; align-items: center; gap: 8px; padding: 0 10px;
-  color: var(--ink-muted); font-size: 12.5px; font-weight: 500;
-  border: 1px dashed var(--line-strong); border-radius: var(--radius-sm);
-}
-.newtab:hover { background: var(--bg-hover); color: var(--ink); border-style: solid; }
-.newtab .plus { font-size: 16px; line-height: 1; }
-
-.rail-actions {
-  flex: none; display: flex; align-items: center; gap: 2px;
-  margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line);
-}
-.rail-actions .grow { flex: 1; }
-.profiledot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
 
 /* ——— content well ———————————————————————————————————————— */
 .body { flex: 1; display: flex; min-height: 0; }
@@ -298,15 +321,9 @@ a { color: var(--accent); }
 }
 .split-handle:hover::after { background: var(--accent); }
 
-.rail-handle {
-  width: 5px; flex: none; cursor: col-resize; background: transparent;
-  margin-left: -3px; z-index: 4;
-}
-.rail-handle:hover { background: var(--accent-soft); }
-
 .sidebar-handle {
   width: 5px; flex: none; cursor: col-resize; background: transparent;
-  margin-right: -3px; z-index: 4;
+  margin-right: -5px; z-index: 4;
 }
 .sidebar-handle:hover { background: var(--accent-soft); }
 

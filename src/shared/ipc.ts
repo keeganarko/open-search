@@ -7,6 +7,17 @@
  * panel list in `App.tsx`.
  */
 export const IPC = {
+  agentsState: 'voyager:agents-state',
+  agentsChanged: 'voyager:agents-changed',
+  agentsSave: 'voyager:agents-save',
+  agentsDelete: 'voyager:agents-delete',
+  agentsStart: 'voyager:agents-start',
+  agentsStop: 'voyager:agents-stop',
+  agentsApprove: 'voyager:agents-approve',
+  agentsRecipe: 'voyager:agents-recipe',
+  agentsForget: 'voyager:agents-forget',
+  agentsOpen: 'voyager:agents-open',
+  agentRecorded: 'voyager:agent-recorded',
   securityStatus: 'voyager:security-status',
   securityUpdate: 'voyager:security-update',
   securityRefreshThreats: 'voyager:security-refresh-threats',
@@ -46,8 +57,17 @@ export const IPC = {
   // sidebar / overlay
   sidebarToggle: 'voyager:sidebar-toggle',
   sidebarWidth: 'voyager:sidebar-width',
-  railToggle: 'voyager:rail-toggle',
-  railWidth: 'voyager:rail-width',
+  bookmarksBarToggle: 'voyager:bookmarks-bar-toggle',
+  panelVisible: 'voyager:panel-visible',
+  browserMenu: 'voyager:browser-menu',
+  profileMenu: 'voyager:profile-menu',
+  tabMenu: 'voyager:tab-menu',
+  chromeProfiles: 'voyager:chrome-profiles',
+  chromePreview: 'voyager:chrome-preview',
+  importFilePreview: 'voyager:import-file-preview',
+  chromeImportCommit: 'voyager:chrome-import-commit',
+  chromeImportCancel: 'voyager:chrome-import-cancel',
+  bookmarkSearch: 'voyager:bookmark-search',
   paletteOpen: 'voyager:palette-open',
   paletteClose: 'voyager:palette-close',
   // chat

@@ -6,6 +6,8 @@ import { randomUUID } from 'node:crypto'
 import { databaseKey } from './databaseKey'
 import { openEncryptedDatabase } from './encryptedDatabase'
 import { MAX_SHORTCUTS, STARTER_SHORTCUTS, shortcutUrl } from '@shared/bookmarks'
+import type { ImportCounts } from '@shared/browserImport'
+import type { ImportedBookmark, ImportedHistory, ImportedPassword } from '../browser/importParsers'
 import type {
   MemoryItem, MemoryKind, Skill, HistoryEntry, Conversation, ChatMessage,
   Profile, TabGroup, McpServerConfig, Brief, Bookmark, SitePermission, SavedLogin
@@ -163,6 +165,7 @@ function migrate(): void {
 
   addColumn('saved_tabs', 'window_key', "TEXT NOT NULL DEFAULT 'w1'")
   addColumn('bookmarks', 'shortcut', 'INTEGER NOT NULL DEFAULT 0')
+  db.exec('CREATE INDEX IF NOT EXISTS bookmarks_profile_url ON bookmarks(profile_id,url); CREATE INDEX IF NOT EXISTS history_import_match ON history(profile_id,url,visited_at)')
 }
 
 /**
@@ -235,6 +238,8 @@ export function deleteProfile(id: string): void {
     }
     db.prepare('DELETE FROM profiles WHERE id=?').run(profileId)
     db.prepare('DELETE FROM kv WHERE key=?').run(`bookmark-shortcuts-initialized:${profileId}`)
+    db.prepare('DELETE FROM kv WHERE key=?').run(`agents:definitions:${profileId}`)
+    db.prepare('DELETE FROM kv WHERE key=?').run(`agents:runs:${profileId}`)
   })
   erase(id)
 }
@@ -687,6 +692,58 @@ export function ensureBookmarkShortcuts(profileId: string): void {
 export function deleteBookmark(profileId: string, id: string): void {
   db.prepare('DELETE FROM bookmarks WHERE id=? AND profile_id=?').run(id, profileId)
   bookmarksChanged(profileId)
+}
+
+/** Preview and commit use the same deduplication rules; commits are atomic. */
+export function importBrowserRecords(profileId: string, data: {
+  bookmarks: ImportedBookmark[]; history: ImportedHistory[]; passwords: ImportedPassword[]; skipped: number
+}, preview = false): ImportCounts {
+  if (!listProfiles().some((p) => p.id === profileId)) throw new Error('The destination profile no longer exists.')
+  if (data.passwords.length && !hasSecureStorage()) throw new Error('Unlock your operating system credential storage before importing passwords.')
+  const counts: ImportCounts = { bookmarks: 0, history: 0, passwords: 0, duplicates: 0, skipped: data.skipped }
+  const seenBookmarks = new Set<string>(), seenHistory = new Set<string>(), seenLogins = new Set<string>()
+  const bookmarkExists = db.prepare('SELECT 1 FROM bookmarks WHERE profile_id=? AND url=? LIMIT 1')
+  const historyExists = db.prepare('SELECT 1 FROM history WHERE profile_id=? AND url=? AND visited_at=? LIMIT 1')
+  const loginExists = db.prepare('SELECT 1 FROM logins WHERE profile_id=? AND origin=? AND username=? LIMIT 1')
+  const bookmarkInsert = db.prepare('INSERT INTO bookmarks(id,profile_id,url,title,folder,shortcut,created_at) VALUES(?,?,?,?,?,0,?)')
+  const historyInsert = db.prepare('INSERT INTO history(profile_id,url,title,excerpt,visited_at) VALUES(?,?,?,NULL,?)')
+  const loginInsert = db.prepare('INSERT INTO logins(id,profile_id,origin,username,password_enc,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
+  db.transaction(() => {
+    for (const b of data.bookmarks) {
+      if (seenBookmarks.has(b.url) || bookmarkExists.get(profileId, b.url)) { counts.duplicates++; continue }
+      seenBookmarks.add(b.url)
+      if (!preview) bookmarkInsert.run(randomUUID(), profileId, b.url, b.title, b.folder, b.createdAt)
+      counts.bookmarks++
+    }
+    for (const h of data.history) {
+      const key = JSON.stringify([h.url, h.visitedAt])
+      if (seenHistory.has(key) || historyExists.get(profileId, h.url, h.visitedAt)) { counts.duplicates++; continue }
+      seenHistory.add(key)
+      if (!preview) historyInsert.run(profileId, h.url, h.title, h.visitedAt)
+      counts.history++
+    }
+    for (const p of data.passwords) {
+      const key = JSON.stringify([p.origin, p.username])
+      if (seenLogins.has(key) || loginExists.get(profileId, p.origin, p.username)) { counts.duplicates++; continue }
+      seenLogins.add(key)
+      if (!preview) {
+        const now = new Date().toISOString()
+        loginInsert.run(randomUUID(), profileId, p.origin, p.username,
+          safeStorage.encryptString(p.password).toString('base64'), now, now)
+      }
+      counts.passwords++
+    }
+  })()
+  if (!preview && counts.bookmarks) bookmarksChanged(profileId)
+  return counts
+}
+
+export function searchBookmarks(profileId: string, query: string, limit = 20): Bookmark[] {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean).slice(0, 12)
+  const where = terms.map(() => "AND (title || ' ' || url || ' ' || coalesce(folder,'')) LIKE ? ESCAPE '\\'").join(' ')
+  const patterns = terms.map((term) => `%${term.replace(/[\\%_]/g, '\\$&')}%`)
+  return db.prepare(`SELECT * FROM bookmarks WHERE profile_id=? ${where} ORDER BY shortcut DESC,created_at DESC LIMIT ?`)
+    .all(profileId, ...patterns, Math.max(1, Math.min(Math.trunc(limit) || 20, 100))).map(bookmarkRow)
 }
 
 // ——— mcp ———————————————————————————————————————————————————

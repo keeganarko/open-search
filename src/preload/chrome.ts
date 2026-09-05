@@ -6,6 +6,8 @@ import type {
   DownloadEntry, SitePermission, SavedLogin, ExtensionStatus, SecurityStatus
 } from '../shared/types'
 import type { StreamEvent } from '../shared/ipc'
+import type { AgentsState, AgentRun, AgentStart, AgentDefinition } from '../shared/agents'
+import type { ChromeProfile, ChromeImportSelection, ImportFileKind, ImportPreview, ImportCounts } from '../shared/browserImport'
 
 const invoke = <T>(channel: string, ...args: unknown[]): Promise<T> =>
   ipcRenderer.invoke(channel, ...args) as Promise<T>
@@ -25,6 +27,29 @@ function onBare(channel: string, fn: () => void): () => void {
 }
 
 const api = {
+  agents: {
+    state: () => invoke<AgentsState>(IPC.agentsState),
+    save: (definition: AgentDefinition) => invoke<AgentsState>(IPC.agentsSave, definition),
+    remove: (id: string) => invoke<AgentsState>(IPC.agentsDelete, id),
+    start: (input: AgentStart) => invoke<AgentRun>(IPC.agentsStart, input),
+    stop: (id: string) => invoke<AgentsState>(IPC.agentsStop, id),
+    approve: (run: string, approval: string, approved: boolean) => invoke<AgentsState>(IPC.agentsApprove, run, approval, approved),
+    saveRecording: (run: string, name: string, checks: Record<string, string> = {}) => invoke<AgentsState>(IPC.agentsRecipe, run, name, checks),
+    forget: (id: string) => invoke<AgentsState>(IPC.agentsForget, id),
+    open: () => send(IPC.agentsOpen),
+    onOpen: (fn: () => void) => onBare(IPC.agentsOpen, fn),
+    onChanged: (fn: (state: AgentsState) => void) => on(IPC.agentsChanged, fn)
+  },
+  browserMenu: () => send(IPC.browserMenu),
+  profileMenu: () => send(IPC.profileMenu),
+  tabMenu: (id: string) => send(IPC.tabMenu, id),
+  browserImport: {
+    profiles: (chooseFolder = false) => invoke<ChromeProfile[] | null>(IPC.chromeProfiles, chooseFolder),
+    preview: (selection: ChromeImportSelection) => invoke<ImportPreview>(IPC.chromePreview, selection),
+    file: (kind: ImportFileKind) => invoke<ImportPreview | null>(IPC.importFilePreview, kind),
+    commit: (id: string) => invoke<ImportCounts>(IPC.chromeImportCommit, id),
+    cancel: () => send(IPC.chromeImportCancel)
+  },
   security: {
     status: () => invoke<SecurityStatus>(IPC.securityStatus),
     update: () => invoke<string>(IPC.securityUpdate),
@@ -69,8 +94,8 @@ const api = {
     ratios: (r: number[]) => send(IPC.splitRatios, r),
     sidebar: (open?: boolean) => send(IPC.sidebarToggle, open),
     sidebarWidth: (px: number) => send(IPC.sidebarWidth, px),
-    rail: (open?: boolean) => send(IPC.railToggle, open),
-    railWidth: (px: number) => send(IPC.railWidth, px),
+    bookmarksBar: (open?: boolean) => send(IPC.bookmarksBarToggle, open),
+    panel: (open: boolean) => send(IPC.panelVisible, open),
     state: () => invoke<FullWindowState>(IPC.windowState)
   },
 
@@ -153,6 +178,7 @@ const api = {
 
   // ——— bookmarks ———————————————————————————————————————————
   bookmarks: {
+    search: (query: string, limit?: number) => invoke<Bookmark[]>(IPC.bookmarkSearch, query, limit),
     add: (url: string, title: string, folder?: string) =>
       invoke<Bookmark>(IPC.bookmarkAdd, url, title, folder),
     list: () => invoke<Bookmark[]>(IPC.bookmarkList),
@@ -279,7 +305,7 @@ const api = {
   // Menu-driven navigation. Each returns an unsubscribe.
   onOpen: (
     what:
-      | 'settings' | 'privacy' | 'history' | 'bookmarks' | 'memory' | 'skills' | 'connectors'
+      | 'settings' | 'privacy' | 'history' | 'bookmarks' | 'memory' | 'skills' | 'connectors' | 'import' | 'profiles'
       | 'brief' | 'deck-composer' | 'shortcuts' | 'find' | 'tidy',
     fn: () => void
   ) => onBare(`voyager:open-${what}`, fn),

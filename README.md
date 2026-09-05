@@ -6,21 +6,21 @@
 
 ### A little less browsing. A little more understanding.
 
-A desktop browser built around your work. Organize your tabs, explore pages
-side by side, and ask an assistant that can use your browsing context.
+A desktop browser with familiar tabs and navigation. Bring your Chrome bookmarks
+and history, explore pages side by side, and ask an assistant to find saved pages.
 
-![Voyager: open a research workspace, ask about a page, and get an answer with sources](docs/media/voyager.gif)
+![Voyager with horizontal tabs and the Chrome import screen](docs/media/chrome-import.png)
 
-*Actual prototype UI, presented in monochrome. Research pages and assistant response are illustrative.*
+*Current renderer with sample tabs, bookmarks, and a simulated Chrome profile.*
 
-[Watch the walkthrough](docs/media/voyager.mp4) · [Setup and features](docs/guide.md) · [Security status](docs/SECURITY-OPERATIONS.md)
+[Earlier prototype walkthrough](docs/media/voyager.mp4) · [Setup and features](docs/guide.md) · [Security status](docs/SECURITY-OPERATIONS.md)
 
 ## Make space for the work
 
 - **Keep related tabs together.** Groups, pinned sites, and separate profiles help organize each project.
 - **Read with context.** Ask about the current page, bring another tab into the conversation, and follow the sources.
 - **Compare without switching.** Put up to four pages in resizable panes.
-- **Keep your workspace local.** Profiles, history, bookmarks, and settings live on your machine.
+- **Bring your saved pages.** Import Chrome bookmarks and history into a local profile, then search them from the address bar or assistant.
 - **Choose what the assistant can do.** Review permission requests before it takes external actions.
 
 ## Try it
@@ -65,14 +65,18 @@ Domain blocking does not provide Chrome Safe Browsing coverage. Read the
 2. Open the Voyager sidebar and ask about the current page.
 3. Use `@` to add another tab, or `/` to choose a skill.
 
-## Keep favorite sites close
+## Bring Chrome with you
 
-<img src="docs/media/favorites.png" width="235" alt="Favorite bookmark icons for Gmail, YouTube and two sample sites, with an add button">
+Open **⋮ → Import from Chrome**, choose a Chrome profile, and review the import
+before copying bookmarks and history. Chrome bookmark HTML exports and password
+CSV exports are also supported. Imports preserve existing records and stay local.
 
-*Favorites in a sample workspace.* Click an icon to open its saved page. Use
-**+** to add the current page or another address, and **Edit** to remove icons
-or choose from existing bookmarks. Favorites stay with their profile after tabs
-close and the browser restarts.
+The bookmarks bar keeps saved sites below the address bar. Star an item in
+**All bookmarks** to move it to the start of the bar.
+
+This is a one-time import. Google Sync, website sign-ins, extensions, open tabs,
+and Google Collections do not transfer. See the [import guide and audit](docs/CHROME-IMPORT-AUDIT.md)
+for supported data, privacy controls, and validation limits.
 
 ## Develop or package
 
@@ -92,9 +96,17 @@ npm run dist:linux  # Linux AppImage
 The [guide](docs/guide.md) covers profiles, privacy, permissions, extensions,
 and the application structure.
 
-The [custom agent architecture](docs/AGENT-ARCHITECTURE.md) explores agents that
-work across selected tabs. It is a proposal; general page automation is not yet
-implemented.
+## Give selected tabs a little help
+
+<img src="docs/media/agents.png" width="280" alt="Agents side panel with research, page views, watching, recording and guided workflows">
+
+Click **Agents** to choose a task and the tabs it can use. Research sources,
+create comparison tables, watch loaded pages, or record a reusable workflow.
+Page actions wait for your approval. Hide the panel while it works; the button
+shows activity and requests for review.
+
+Read the [agent guide](docs/AGENT-GUIDE.md) for setup, supported interactions and
+limits, or explore the [architecture](docs/AGENT-ARCHITECTURE.md).
 
 Built by [Keegan Choudhury](https://github.com/keeganarko).
 [MIT License](LICENSE) · [Report a vulnerability privately](SECURITY.md)

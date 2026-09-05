@@ -1,8 +1,9 @@
 # Custom agents in Voyager
 
-Status: architecture proposal, September 4, 2026. Source baseline: `237d17e`.
-The runtime, contracts and interface below are proposed; this document does not
-enable new automation or grant access to any website.
+Original architecture proposal: September 4, 2026. Source baseline: `237d17e`.
+An initial custom-agent runtime is now implemented. See the [agent guide](AGENT-GUIDE.md)
+for available capabilities, validation and limits. This document preserves the
+broader design; features described below should not be assumed to be implemented.
 
 Give a task to a custom agent, choose the tabs it can use, and watch it produce
 work you can inspect. Start with research across selected tabs. Extend to

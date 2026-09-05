@@ -30,9 +30,9 @@ export default function Bookmarks({ onClose, profileId }: { onClose: () => void;
       actions={<input type="text" placeholder="Filter…" style={{ width: 220 }}
         value={q} onChange={(e) => setQ(e.target.value)} autoFocus />}
     >
-      <p className="desc">Star a bookmark to keep its icon in Favorites at the top left.</p>
+      <p className="desc">Star a bookmark to keep its icon in Favorites at the start of the bookmarks bar.</p>
       {error && <div role="alert" className="favorite-error">{error}</div>}
-      {shown.length === 0 && <div className="empty">No bookmarks.</div>}
+      {shown.length === 0 && <div className="empty">No bookmarks. <button className="btn" onClick={() => window.voyager.openPanel('import')}>Import from Chrome</button></div>}
       {shown.map((b) => (
         <div className="list-row" key={b.id}>
           <SiteIcon url={b.url} title={b.title} />

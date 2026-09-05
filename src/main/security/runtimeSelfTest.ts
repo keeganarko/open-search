@@ -1,5 +1,6 @@
 // Imported only by the dedicated test build; removed from normal distribution.
-import { app, session } from 'electron'
+import { app, session, ipcMain } from 'electron'
+import { IPC } from '@shared/ipc'
 import { createServer as httpServer, type RequestListener } from 'node:http'
 import { createServer as httpsServer } from 'node:https'
 import { once } from 'node:events'
@@ -8,9 +9,11 @@ import { dirname, join } from 'node:path'
 import { X509Certificate } from 'node:crypto'
 import assert from 'node:assert/strict'
 import * as db from '../store/db'
-import { setSettings, DEFAULT_SETTINGS } from '../store/settings'
+import { setSettings, getSettings, DEFAULT_SETTINGS } from '../store/settings'
 import { initializeThreats, matchesThreat, threatStatus } from './threats'
 import { callPage } from '../browser/pageBridge'
+import { PageAgentRuntime, pageAgents } from '../agent/agentRuntime'
+import type { AgentSnapshot, AgentPrepared, AgentStart, AgentActionResult } from '@shared/agents'
 import { listDownloads, refreshSessionPrivacy } from '../browser/session'
 import { type VoyagerWindow } from '../browser/window'
 import { hasSecureStorage } from '../store/secureStorage'
@@ -53,7 +56,18 @@ export async function runRuntimeSecurityTests(createWindow: () => Promise<Voyage
       .split('\n').find((line) => line && !line.startsWith('#'))!.trim()
     const handler: RequestListener = (_request, response) => {
       hits.push(`${_request.headers.host}${_request.url}`)
-      if (_request.url === '/download') {
+      if (_request.url?.startsWith('/agent-effect')) {
+        _request.resume(); response.writeHead(200, { 'content-type': 'text/plain' }); response.end('Fixture effect received')
+      } else if (_request.url === '/agent') {
+        response.writeHead(200, { 'content-type': 'text/html' })
+        response.end(`<!doctype html><title>Agent fixture</title><h1>Agent workspace</h1>
+          <label for="agent-title">Issue title</label><input id="agent-title" name="title" oninput="fetch('/agent-effect?fill', {method:'POST',body:this.value})">
+          <input type="password" value="fixture-password-must-stay-private"><input autocomplete="cc-number" aria-label="Card number" value="fixture-card-private">
+          <div id="agent-rich" role="textbox" aria-label="Message body" contenteditable="true" oninput="fetch('/agent-effect?rich', {method:'POST',body:this.textContent})">PRIVATE EDITOR VALUE</div>
+          <div hidden>HIDDEN PRIVATE FIXTURE</div><table><tr><th>Name</th><th>Value</th></tr><tr><td>Example</td><td>42<span hidden>HIDDEN CELL FIXTURE</span></td></tr></table>
+          <button id="preview" onclick="document.querySelector('#status').textContent='Draft ready'">Preview draft</button>
+          <button id="unknown" onclick="fetch('/agent-effect?unknown', {method:'POST'})">Save remote</button><p id="status"></p>`)
+      } else if (_request.url === '/download') {
         response.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="report.txt"' })
         response.end('Harmless Voyager security fixture')
       } else if (_request.url === '/disguised') {
@@ -186,6 +200,132 @@ export async function runRuntimeSecurityTests(createWindow: () => Promise<Voyage
       await ui.executeJavaScript(`window.voyager.bookmarks.setShortcut(${JSON.stringify(favorite.id)}, false, ${JSON.stringify(profile.id)})`)
       assert.equal(db.getBookmark(profile.id, favorite.id)?.shortcut, false, 'Removing a favorite preserves its bookmark.')
     })
+    await wc.loadURL(`http://localhost:${port}/agent`)
+    setSettings({ privacy: { ...getSettings().privacy, paused: false } })
+    const agentInput = (definitionId: string): AgentStart => ({ definitionId, task: 'Fixture task', tabIds: [tab.id], connectorTools: [], parameters: {}, intervalSeconds: 15 })
+    await run('Agent snapshots omit sensitive fields and hidden table text in the real preload', async () => {
+      const s = await callPage<AgentSnapshot>(wc, 'agentSnapshot')
+      assert(s)
+      assert(s?.elements.some((e) => e.name === 'Issue title'))
+      assert(!JSON.stringify(s).includes('fixture-password'))
+      assert(!JSON.stringify(s).includes('fixture-card'))
+      assert(!JSON.stringify(s).includes('HIDDEN'))
+      assert(!JSON.stringify(s).includes('PRIVATE EDITOR VALUE'))
+      assert(!s.elements.some((e) => e.name === 'Card number'))
+      assert.deepEqual(await wc.executeJavaScript('[typeof window.voyager, typeof window.__voyagerPage]'), ['undefined', 'undefined'])
+    })
+    await run('Prepared agent actions reject DOM replacement before causing any website effect', async () => {
+      const s = (await callPage<AgentSnapshot>(wc, 'agentSnapshot'))!
+      const field = s.elements.find((e) => e.name === 'Issue title')!
+      const p = (await callPage<AgentPrepared>(wc, 'agentPrepare', { documentId: s.documentId, snapshotId: s.snapshotId, action: { kind: 'fill', ref: field.ref, text: 'Must not be inserted' } }))!
+      assert(p)
+      await wc.executeJavaScript(`const field = document.querySelector('#agent-title'); field.replaceWith(field.cloneNode(true));`)
+      const before = hits.filter((h) => h.includes('/agent-effect')).length
+      assert.equal((await callPage<AgentActionResult>(wc, 'agentAct', p.token))?.outcome, 'rejected')
+      await pause(100)
+      assert.equal(hits.filter((h) => h.includes('/agent-effect')).length, before)
+    })
+    await run('Approved field edits execute once and observe real autosave traffic', async () => {
+      const s = (await callPage<AgentSnapshot>(wc, 'agentSnapshot'))!
+      const p = (await callPage<AgentPrepared>(wc, 'agentPrepare', { documentId: s.documentId, snapshotId: s.snapshotId,
+        action: { kind: 'fill', ref: s.elements.find((e) => e.name === 'Issue title')!.ref, text: 'Fixture title' } }))!
+      const before = hits.filter((h) => h.endsWith('/agent-effect?fill')).length
+      assert.equal((await callPage<AgentActionResult>(wc, 'agentAct', p.token))?.outcome, 'verified')
+      await until(() => hits.filter((h) => h.endsWith('/agent-effect?fill')).length === before + 1)
+      assert.equal(await wc.executeJavaScript(`document.querySelector('#agent-title').value`), 'Fixture title')
+      assert.equal((await callPage<AgentActionResult>(wc, 'agentAct', p.token))?.outcome, 'rejected')
+      assert.equal(hits.filter((h) => h.endsWith('/agent-effect?fill')).length, before + 1)
+      const richSnapshot = (await callPage<AgentSnapshot>(wc, 'agentSnapshot'))!
+      const rich = (await callPage<AgentPrepared>(wc, 'agentPrepare', { documentId: richSnapshot.documentId, snapshotId: richSnapshot.snapshotId,
+        action: { kind: 'fill', ref: richSnapshot.elements.find((e) => e.name === 'Message body')!.ref, text: 'Reviewed message body' } }))!
+      assert.equal((await callPage<AgentActionResult>(wc, 'agentAct', rich.token))?.outcome, 'verified')
+      assert.equal(await wc.executeJavaScript(`document.querySelector('#agent-rich').textContent`), 'Reviewed message body')
+    })
+    await run('Agent clicks distinguish verified UI transitions from unknown external outcomes', async () => {
+      for (const [name, expectedText, outcome] of [['Preview draft', 'Draft ready', 'verified'], ['Save remote', undefined, 'unknown']] as const) {
+        const s = (await callPage<AgentSnapshot>(wc, 'agentSnapshot'))!
+        const p = (await callPage<AgentPrepared>(wc, 'agentPrepare', { documentId: s.documentId, snapshotId: s.snapshotId,
+          action: { kind: 'click', ref: s.elements.find((e) => e.name === name)!.ref, expectedText } }))!
+        assert.equal((await callPage<AgentActionResult>(wc, 'agentAct', p.token))?.outcome, outcome)
+      }
+    })
+    await run('Packaged agent IPC scopes local watchers and rejects executable recipes', async () => {
+      const ui = win!.chrome.webContents
+      await assert.rejects(ui.executeJavaScript(`window.voyager.agents.save({schemaVersion:1,script:'untrusted'})`))
+      await assert.rejects(ui.executeJavaScript(`window.voyager.agents.start(${JSON.stringify({ ...agentInput('watch'), tabIds: ['not-a-granted-tab'] })})`))
+      const started = await ui.executeJavaScript(`window.voyager.agents.start(${JSON.stringify(agentInput('watch'))})`)
+      assert.equal(started.status, 'watching')
+      await ui.executeJavaScript(`window.voyager.agents.stop(${JSON.stringify(started.id)})`)
+      assert.equal(pageAgents.state(win!).runs.find((r) => r.id === started.id)?.status, 'cancelled')
+    })
+    await run('Packaged agent broker refuses pending edits after a same-URL reload', async () => {
+      // Reuse the broker's own inspected references when returning the model action.
+      let lastRef = ''
+      const scripted = new PageAgentRuntime(async (request) => {
+        const result = request.messages.at(-1)?.content
+        if (Array.isArray(result)) for (const block of result) {
+          if (block.type === 'tool_result' && typeof block.content === 'string') {
+            try { lastRef = JSON.parse(block.content).elements?.find((e: { name: string }) => e.name === 'Issue title')?.ref ?? lastRef } catch { /* non-snapshot result */ }
+          }
+        }
+        return { inputTokens: 10, outputTokens: 10, content: [{ type: 'tool_use', caller: { type: 'direct' }, id: lastRef ? 'fixture-fill' : 'fixture-read',
+          name: lastRef ? 'page_fill' : 'page_inspect', input: lastRef ? { tab_id: tab.id, ref: lastRef, text: 'Must not autosave' } : { tab_id: tab.id } }] }
+      })
+      try {
+        const r = await scripted.start(win!, agentInput('workflow'))
+        await until(() => !!scripted.state(win!).runs.find((x) => x.id === r.id)?.approval)
+        const approval = scripted.state(win!).runs.find((x) => x.id === r.id)!.approval!
+        const before = hits.filter((h) => h.includes('/agent-effect?fill')).length
+        await wc.loadURL(`http://localhost:${port}/agent`)
+        assert.throws(() => scripted.approve(win!, r.id, approval.id, true))
+        await pause(100)
+        assert.equal(hits.filter((h) => h.includes('/agent-effect?fill')).length, before)
+      } finally { scripted.shutdown() }
+    })
+    await run('Trusted demonstrations omit field values and replay through exact action approvals', async () => {
+      const ui = win!.chrome.webContents
+      const r = await ui.executeJavaScript(`window.voyager.agents.start(${JSON.stringify(agentInput('teach'))})`)
+      let stage = 'Recording startup'
+      const events: unknown[] = []
+      const observe = (event: Electron.IpcMainEvent, payload: { documentId?: string; step?: { name?: string } }) => events.push({ sender: event.sender.id, mainFrame: event.senderFrame === event.sender.mainFrame, documentId: payload?.documentId, name: payload?.step?.name })
+      ipcMain.on(IPC.agentRecorded, observe)
+      try {
+        await until(() => pageAgents.state(win!).runs.find((x) => x.id === r.id)?.message.startsWith('Recording your') === true)
+        // Chromium hit testing needs a mapped, focused view for trusted input.
+        win!.endSplash(); win!.setPanelVisible(false); win!.closeOverlay(); win!.window.show(); win!.window.focus(); win!.tabs.activate(tab.id); win!.layout(); wc.focus()
+        await pause(200)
+        stage = 'Trusted input recording'
+        for (const selector of ['#agent-title', '#preview']) {
+          const rect = await wc.executeJavaScript(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2} })()`)
+          wc.sendInputEvent({ type: 'mouseDown', x: Math.round(rect.x), y: Math.round(rect.y), button: 'left', clickCount: 1 })
+          wc.sendInputEvent({ type: 'mouseUp', x: Math.round(rect.x), y: Math.round(rect.y), button: 'left', clickCount: 1 })
+          await pause(100)
+          if (selector === '#agent-title') await wc.insertText('Do not record this field value')
+        }
+        await until(() => (pageAgents.state(win!).runs.find((x) => x.id === r.id)?.recordedSteps.length ?? 0) === 2)
+        await ui.executeJavaScript(`window.voyager.agents.stop(${JSON.stringify(r.id)})`)
+        await ui.executeJavaScript(`window.voyager.agents.saveRecording(${JSON.stringify(r.id)}, 'Fixture recipe', {'1':'Draft ready'})`)
+        const recipe = pageAgents.state(win!).definitions.find((d) => d.name === 'Fixture recipe')!
+        assert.equal(recipe.steps[1].name, 'Preview draft')
+        assert(!JSON.stringify(recipe).includes('Do not record this field value'))
+        await wc.loadURL(`http://localhost:${port}/agent`)
+        const replay = await ui.executeJavaScript(`window.voyager.agents.start(${JSON.stringify({ ...agentInput(recipe.id), parameters: { field_1: 'Reviewed replay value' } })})`)
+        for (let action = 0; action < 2; action++) {
+          stage = `Replay approval ${action + 1}`
+          await until(() => !!pageAgents.state(win!).runs.find((x) => x.id === replay.id)?.approval)
+          const approval = pageAgents.state(win!).runs.find((x) => x.id === replay.id)!.approval!
+          await ui.executeJavaScript(`window.voyager.agents.approve(${JSON.stringify(replay.id)}, ${JSON.stringify(approval.id)}, true)`)
+          await until(() => pageAgents.state(win!).runs.find((x) => x.id === replay.id)?.approval?.id !== approval.id)
+        }
+        stage = 'Replay completion'
+        await until(() => pageAgents.state(win!).runs.find((x) => x.id === replay.id)?.status === 'completed')
+        assert.equal(await wc.executeJavaScript(`document.querySelector('#agent-title').value`), 'Reviewed replay value')
+      } catch (error) {
+        const observed = { bounds: tab.view.getBounds(), attached: win!.window.contentView.children.includes(tab.view), overlay: win!.overlayMode, windowFocused: win!.window.isFocused(), visible: tab.view.getVisible(), page: await wc.executeJavaScript(`({focused:document.hasFocus(),active:document.activeElement?.id,status:document.querySelector('#status')?.textContent})`).catch(() => null) }
+        throw new Error(`${stage}: ${String(error)}; events=${JSON.stringify(events)}; page=${JSON.stringify(observed)}; run=${JSON.stringify(pageAgents.state(win!).runs.find((x) => x.id === r.id)?.recordedSteps)}`)
+      } finally { ipcMain.removeListener(IPC.agentRecorded, observe); pageAgents.stop(win!, r.id); win!.window.hide() }
+    })
+    setSettings({ privacy: { ...getSettings().privacy, paused: true } })
     await logging.netLog.stopLogging()
     copyFileSync(netlog, join(dirname(report), 'runtime-network.json'))
     logging = undefined
@@ -198,7 +338,7 @@ export async function runRuntimeSecurityTests(createWindow: () => Promise<Voyage
     http?.close(); https?.close()
     clearTimeout(deadline)
   }
-  const passed = results.length >= 16 && results.every((result) => result.passed)
+  const passed = results.length >= 23 && results.every((result) => result.passed)
   writeFileSync(report, JSON.stringify({ passed, versions: process.versions, platform: process.platform,
     isolatedProfile: app.getPath('userData'), fixtureRequests: hits, results,
     limitations: ['Automated tests, not an independent penetration test.',

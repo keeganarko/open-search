@@ -95,6 +95,8 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
         {TABS.map((t) => (
           <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t}</button>
         ))}
+        <button onClick={() => window.voyager.openPanel('import')}>Import from Chrome</button>
+        <button onClick={() => window.voyager.openPanel('profiles')}>Profiles</button>
       </div>
 
       {tab === 'Security' && <SecurityStatus />}
@@ -261,7 +263,7 @@ export default function Settings({ settings, update, onClose, toast, initial }: 
           <label className="check">
             <input type="checkbox" checked={settings.appearance.compactChrome}
               onChange={(e) => update({ appearance: { compactChrome: e.target.checked } })} />
-            Compact browser UI
+            Hide the bookmarks bar
           </label>
           <label className="check">
             <input type="checkbox" checked={settings.appearance.startupStory}

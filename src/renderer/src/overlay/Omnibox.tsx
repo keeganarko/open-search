@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import type { HistoryEntry, Settings } from '@shared/types'
+import type { Bookmark, HistoryEntry, Settings } from '@shared/types'
 
 interface Rect { x: number; y: number; width: number; height: number }
 
 interface Row {
-  kind: 'ask' | 'search' | 'url' | 'history' | 'tab'
+  kind: 'ask' | 'search' | 'url' | 'history' | 'tab' | 'bookmark'
   label: string
   detail?: string
   run: () => void
@@ -24,6 +24,7 @@ export default function Omnibox({ anchor, initial, settings, onClose }: {
 }): JSX.Element {
   const [q, setQ] = useState(initial)
   const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
   const [tabs, setTabs] = useState<{ id: string; title: string; url: string }[]>([])
   const [sel, setSel] = useState(0)
   const input = useRef<HTMLInputElement>(null)
@@ -32,9 +33,14 @@ export default function Omnibox({ anchor, initial, settings, onClose }: {
   useEffect(() => { void window.voyager.layout.state().then((s) => setTabs(s.tabs)) }, [])
 
   useEffect(() => {
-    if (!q.trim()) return setHistory([])
-    const t = setTimeout(() => { void window.voyager.history.search(q, 6).then(setHistory) }, 90)
-    return () => clearTimeout(t)
+    let live = true
+    setHistory([]); setBookmarks([])
+    if (!q.trim()) return
+    const t = setTimeout(() => {
+      void Promise.all([window.voyager.history.search(q, 6), window.voyager.bookmarks.search(q, 4)])
+        .then(([h, b]) => { if (live) { setHistory(h); setBookmarks(b) } }).catch(() => {})
+    }, 90)
+    return () => { live = false; clearTimeout(t) }
   }, [q])
 
   const navigate = (url: string): void => {
@@ -77,7 +83,10 @@ export default function Omnibox({ anchor, initial, settings, onClose }: {
     })
   }
 
-  for (const h of history.slice(0, 6)) {
+  for (const b of bookmarks) rows.push({ kind: 'bookmark', label: b.title || b.url,
+    detail: `Bookmark · ${b.url}`, run: () => navigate(b.url) })
+
+  for (const h of history.filter((h) => !bookmarks.some((b) => b.url === h.url)).slice(0, 6)) {
     rows.push({
       kind: 'history', label: h.title || h.url, detail: h.url,
       run: () => navigate(h.url)
@@ -85,11 +94,11 @@ export default function Omnibox({ anchor, initial, settings, onClose }: {
   }
 
   const GLYPH: Record<Row['kind'], string> = {
-    ask: '✦', search: '⌕', url: '→', history: '🕘', tab: '▢'
+    ask: '✦', search: '⌕', url: '→', history: '◷', tab: '▢', bookmark: '☆'
   }
 
-  const width = Math.max(anchor.width, 520)
-  const left = Math.min(anchor.x, window.innerWidth - width - 12)
+  const width = Math.min(Math.max(anchor.width, 520), window.innerWidth - 24)
+  const left = Math.max(12, Math.min(anchor.x, window.innerWidth - width - 12))
 
   return (
     <>
@@ -107,7 +116,7 @@ export default function Omnibox({ anchor, initial, settings, onClose }: {
               else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => (s - 1 + rows.length) % Math.max(1, rows.length)) }
               else if (e.key === 'Enter') {
                 e.preventDefault()
-                if (e.metaKey) return ask()
+                if (e.metaKey || e.ctrlKey) return ask()
                 rows[sel]?.run()
               }
             }}

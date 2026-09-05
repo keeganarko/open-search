@@ -31,6 +31,8 @@ export default function Palette({ query, onClose }: { query: string; onClose: ()
   const go = (fn: () => void) => (): void => { fn(); onClose() }
 
   const commands: Cmd[] = [
+    { id: 'import', glyph: '↓', label: 'Import from Chrome', run: () => window.voyager.openPanel('import') },
+    { id: 'profiles', glyph: '◉', label: 'Manage profiles', run: () => window.voyager.openPanel('profiles') },
     { id: 'new-tab', glyph: '+', label: 'New tab', run: go(() => window.voyager.tabs.create({})) },
     { id: 'split', glyph: '◫', label: 'Split with the last tab', detail: 'Two pages side by side',
       run: go(async () => {

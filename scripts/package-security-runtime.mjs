@@ -26,7 +26,7 @@ try {
   // Freeze dependencies too: a linked node_modules directory can make builder's
   // collector omit hoisted transitive packages after a clean npm ci.
   for (const name of ['out', 'resources', 'build', 'package.json', 'package-lock.json', 'node_modules']) {
-    cpSync(name, join(snapshot, name), { recursive: true })
+    cpSync(name, join(snapshot, name), { recursive: true, dereference: name === 'node_modules' })
   }
   await build({ projectDir: snapshot, ...(process.argv.includes('--linux') ? { linux: ['dir'] } : { win: ['dir'] }), x64: true, publish: 'never', config: {
     directories: { output: resolve('release/security-runtime') },

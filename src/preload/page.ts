@@ -1,5 +1,6 @@
 import { ipcRenderer } from 'electron'
 import { Readability, isProbablyReaderable } from '@mozilla/readability'
+import { agentSnapshot, agentPrepare, agentAct, agentStartRecording, agentRecording, agentStopRecording, agentDiagnostics } from './agentPage'
 
 const MAX = 400_000
 
@@ -200,6 +201,7 @@ ipcRenderer.on('voyager:login-fill', (_e, cred: { origin: string; username: stri
 })
 
 const pageApi = {
+  agentSnapshot, agentPrepare, agentAct, agentStartRecording, agentRecording, agentStopRecording, agentDiagnostics,
   extract, selection, insertText, selectionRect,
   /** Whether a fillable login form is on screen right now. */
   hasLoginForm: () => passwordFields().length > 0,

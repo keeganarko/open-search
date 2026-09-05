@@ -138,6 +138,7 @@ export default function Sidebar({ profileId, width, onPanel, toast }: Props): JS
     <div className="sidebar" style={{ width }}>
       <div className="sidebar-head">
         <span className="title" style={{ display: 'flex', alignItems: 'center', gap: 7 }}><VoyagerMark />Voyager</span>
+        <button className="agent-text-button" onClick={() => window.voyager.agents.open()}>Agents</button>
         <button className="iconbtn" title="Chat history" onClick={() => setShowList((s) => !s)}>≡</button>
         <button className="iconbtn" title="New chat" onClick={newChat}>+</button>
         <button className="iconbtn" title="Skills" onClick={() => onPanel('skills')}>✧</button>

@@ -3,6 +3,11 @@
 Read `README.md` first; it is the map. This file is the stuff that only matters
 when you are changing the code.
 
+Layout update (2026-09-04): the browser now uses horizontal tabs and a toolbar.
+Their shared dimensions live in `src/shared/chromeLayout.ts`; the renderer and
+Electron page bounds both consume them. Historical rail notes below refer to
+the retired left-pane UI. Existing runtime and security instructions remain here.
+
 ## Invariants
 
 - **`src/shared/types.ts` and `src/shared/ipc.ts` are the contract.** Any channel

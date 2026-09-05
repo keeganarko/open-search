@@ -9,7 +9,8 @@ import type { Skill, McpServerConfig, ContextRef } from '@shared/types'
 import * as db from './store/db'
 import { getSettings, setSettings, isExcluded } from './store/settings'
 import { resetBuiltinSkill } from './store/builtinSkills'
-import { buildAppMenu } from './menu'
+import { buildAppMenu, showBrowserMenu, showProfileMenu, showTabMenu } from './menu'
+import { listChromeProfiles, previewChromeProfile, previewImportFile, commitChromeImport, cancelChromeImport } from './browser/chromeImport'
 import {
   openExternal, clearBrowsingData, listDownloads, clearDownloads,
   watchDownloads, refreshSessionPrivacy
@@ -18,6 +19,9 @@ import * as perms from './browser/permissions'
 import * as passwords from './browser/passwords'
 import * as extensions from './browser/extensions'
 import { engine } from './agent/engine'
+import { pageAgents } from './agent/agentRuntime'
+import { agentDefinitions, saveAgentDefinition, deleteAgentDefinition } from './agent/agentStore'
+import { parseStart } from './agent/agentPolicy'
 import { authorizeContext } from './agent/access'
 import { escapeContextText } from './agent/context'
 import { contextCandidates, readTab, readSelection } from './agent/context'
@@ -114,6 +118,24 @@ export function registerIpc(
   }
 
   // ——— tabs ————————————————————————————————————————————————
+  handle(IPC.agentsState, () => pageAgents.state(win()))
+  handle(IPC.agentsSave, (definition: unknown) => { saveAgentDefinition(win().profile.id, definition); return pageAgents.state(win()) })
+  handle(IPC.agentsDelete, (id: string) => { deleteAgentDefinition(win().profile.id, id); return pageAgents.state(win()) })
+  handle(IPC.agentsStart, async (value: unknown) => {
+    const w = win(), profileId = w.profile.id
+    const input = parseStart(value)
+    const definition = agentDefinitions(profileId).find((d) => d.id === input.definitionId)
+    if (!definition) throw new Error('Choose an agent in this profile.')
+    if (!['watch', 'teach'].includes(definition.mode) && !definition.steps.length) await authorizeContext(w)
+    if (w.profile.id !== profileId || w.window.isDestroyed()) throw new Error('The profile changed. Select the tabs again.')
+    return pageAgents.start(w, input)
+  })
+  handle(IPC.agentsStop, (id: string) => { pageAgents.stop(win(), id); return pageAgents.state(win()) })
+  handle(IPC.agentsApprove, (run: string, approval: string, approved: boolean) => { pageAgents.approve(win(), run, approval, approved); return pageAgents.state(win()) })
+  handle(IPC.agentsRecipe, (run: string, name: string, checks: Record<string, string>) => { pageAgents.saveRecording(win(), run, name, checks); return pageAgents.state(win()) })
+  handle(IPC.agentsForget, (id: string) => { pageAgents.forget(win(), id); return pageAgents.state(win()) })
+  on(IPC.agentsOpen, () => { const w = win(); w.toggleSidebar(true); post(w.chrome.webContents, IPC.agentsOpen) })
+  onPage(IPC.agentRecorded, (w, sender, payload) => pageAgents.record(w, sender, payload))
   on(IPC.tabCreate, (opts) => { win().tabs.create(opts ?? {}) })
   on(IPC.tabClose, (id) => win().tabs.close(id))
   on(IPC.tabActivate, (id) => win().tabs.activate(id))
@@ -179,8 +201,23 @@ export function registerIpc(
   on(IPC.splitRatios, (ratios) => win().setSplitRatios(ratios))
   on(IPC.sidebarToggle, (open) => win().toggleSidebar(open))
   on(IPC.sidebarWidth, (px) => win().setSidebarWidth(px))
-  on(IPC.railToggle, (open) => win().toggleRail(open))
-  on(IPC.railWidth, (px) => win().setRailWidth(px))
+  on(IPC.bookmarksBarToggle, () => win().toggleBookmarksBar())
+  on(IPC.panelVisible, (open) => { if (typeof open === 'boolean') win().setPanelVisible(open) })
+  on(IPC.browserMenu, () => showBrowserMenu(win()))
+  on(IPC.profileMenu, () => {
+    const w = win()
+    showProfileMenu(w, (id) => {
+      const profile = db.listProfiles().find((p) => p.id === id)
+      if (!profile || w.window.isDestroyed()) return
+      engine.cancelFor(w); perms.cancelFor(w); w.closeOverlay(); w.switchProfile(profile)
+    })
+  })
+  on(IPC.tabMenu, (id) => { if (typeof id === 'string') showTabMenu(win(), id) })
+  handle(IPC.chromeProfiles, (chooseFolder) => listChromeProfiles(win(), chooseFolder === true))
+  handle(IPC.chromePreview, (selection) => previewChromeProfile(win(), selection))
+  handle(IPC.importFilePreview, (kind) => previewImportFile(win(), kind))
+  handle(IPC.chromeImportCommit, (id) => commitChromeImport(win(), id))
+  on(IPC.chromeImportCancel, () => cancelChromeImport(win()))
   on(IPC.paletteOpen, (mode) => win().showOverlay(mode ?? { kind: 'palette' }))
   on(IPC.paletteClose, () => win().closeOverlay())
 
@@ -378,6 +415,8 @@ export function registerIpc(
   handle(IPC.bookmarkAdd, (url: string, title: string, folder?: string) =>
     db.addBookmark(win().profile.id, url, title, folder ?? null))
   handle(IPC.bookmarkList, () => db.listBookmarks(win().profile.id))
+  handle(IPC.bookmarkSearch, (query, limit) => db.searchBookmarks(win().profile.id,
+    typeof query === 'string' ? query.slice(0, 2000) : '', Number.isFinite(limit) ? limit : 20))
   const bookmarkWindow = (profileId: string): VoyagerWindow => {
     const w = win()
     if (w.profile.id !== profileId) throw new Error('The profile changed. Please try again.')
@@ -428,12 +467,13 @@ export function registerIpc(
   on(IPC.splashDone, () => win().endSplash())
   handle(IPC.settingsSet, async (patch: any) => {
     const next = setSettings(patch)
+    if (patch?.privacy) pageAgents.revokeAll('Privacy settings changed. Agent access was revoked; start again to use the new settings.')
     if (patch.appearance?.theme) nativeTheme.themeSource = patch.appearance.theme
     if (patch.privacy && (
       Object.hasOwn(patch.privacy, 'blockAds') || Object.hasOwn(patch.privacy, 'blockTrackers')
       || Object.hasOwn(patch.privacy, 'spellcheckEnabled')
     )) await refreshSessionPrivacy()
-    win().layout()
+    for (const w of allWindows()) { w.layout(); w.pushState() }
     return publicSettings()
   })
   handle(IPC.settingsTestKey, async (key: string) => {
@@ -554,7 +594,7 @@ export function registerIpc(
     if (!w || w.chrome.webContents.isDestroyed()) return
     const panels = new Set([
       'settings', 'privacy', 'history', 'bookmarks', 'memory', 'skills',
-      'connectors', 'brief', 'deck-composer', 'shortcuts', 'find', 'tidy'
+      'connectors', 'brief', 'deck-composer', 'shortcuts', 'find', 'tidy', 'import', 'downloads', 'profiles'
     ])
     if (!panels.has(name)) return
     w.closeOverlay()

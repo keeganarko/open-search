@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import { useAccent, useSettings, useTheme, useToasts, useWindowState } from './state'
 import { playStartupSound } from './startupSound'
 import Splash from './components/Splash'
-import Rail from './components/Rail'
+import BrowserChrome from './components/BrowserChrome'
+import ImportBrowser from './panels/ImportBrowser'
+import Profiles from './panels/Profiles'
 import Sidebar from './components/Sidebar'
 import SplitHandles from './components/SplitHandles'
 import FindBar from './components/FindBar'
@@ -17,10 +19,11 @@ import Compose from './panels/Compose'
 import Downloads from './panels/Downloads'
 import Tidy from './panels/Tidy'
 import Shortcuts from './panels/Shortcuts'
+import Agents from './panels/Agents'
 
 type PanelName =
   | 'settings' | 'privacy' | 'skills' | 'memory' | 'connectors' | 'history'
-  | 'bookmarks' | 'brief' | 'deck-composer' | 'downloads' | 'tidy' | 'shortcuts'
+  | 'bookmarks' | 'brief' | 'deck-composer' | 'downloads' | 'tidy' | 'shortcuts' | 'import' | 'profiles'
 
 export default function App(): JSX.Element {
   const state = useWindowState()
@@ -30,11 +33,12 @@ export default function App(): JSX.Element {
   const [finding, setFinding] = useState(false)
   const [crashed, setCrashed] = useState<Set<string>>(new Set())
   const [splash, setSplash] = useState(false)
+  const [sidebarMode, setSidebarMode] = useState<'chat' | 'agents'>('chat')
+  useEffect(() => window.voyager.agents.onOpen(() => setSidebarMode('agents')), [])
+  useEffect(() => window.voyager.onFocus('composer', () => setSidebarMode('chat')), [])
 
   useTheme(settings?.appearance.theme)
-  // Drives the rail's top inset and whether a title strip is drawn at all:
-  // macOS insets its traffic lights into the rail, Windows and Linux draw
-  // caption buttons top-right and need a strip of their own.
+  // Reserve the correct side of the tab strip for native window controls.
   useEffect(() => { document.documentElement.dataset.platform = window.voyager.platform }, [])
   useAccent(settings?.appearance.accent)
 
@@ -59,7 +63,7 @@ export default function App(): JSX.Element {
   useEffect(() => {
     const names: PanelName[] = [
       'settings', 'privacy', 'skills', 'memory', 'connectors', 'history',
-      'bookmarks', 'brief', 'deck-composer', 'shortcuts', 'tidy', 'downloads'
+      'bookmarks', 'brief', 'deck-composer', 'shortcuts', 'tidy', 'downloads', 'import', 'profiles'
     ]
     const offs = names.map((n) => window.voyager.onOpen(n as never, () => setPanel(n)))
     offs.push(window.voyager.onOpen('find', () => setFinding(true)))
@@ -74,10 +78,15 @@ export default function App(): JSX.Element {
     offs.push(window.voyager.onLoadFailed(({ description }) => {
       toast(`Could not load the page — ${description}`, 'error')
     }))
-    offs.push(window.voyager.onFocus('omnibox', () => openOmnibox()))
+    offs.push(window.voyager.onFocus('omnibox', () => (document.querySelector('.omnibox') as HTMLButtonElement | null)?.click()))
     offs.push(window.voyager.brief.onReady(() => toast('Your morning brief is ready.')))
     return () => offs.forEach((f) => f())
   }, [toast])
+
+  useEffect(() => {
+    window.voyager.layout.panel(panel !== null)
+    return () => window.voyager.layout.panel(false)
+  }, [panel])
 
   // Keep crash badges scoped to tabs that are still live.
   useEffect(() => {
@@ -94,21 +103,20 @@ export default function App(): JSX.Element {
       anchor: r
         ? { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }
         : { x: 100, y: 44, width: 600, height: 30 },
-      query: ''
+      query: state?.tabs.find((t) => t.id === state.activeTabId)?.url ?? ''
     })
-  }, [])
+  }, [state])
 
-  // Rail and sidebar resize. One ref, because only one edge can be dragged at a
+  // Sidebar resize. One ref, because only one edge can be dragged at a
   // time and each reads the pointer from its own side of the window.
-  const dragging = useRef<'rail' | 'sidebar' | null>(null)
-  const grab = (edge: 'rail' | 'sidebar') => (): void => {
+  const dragging = useRef<'sidebar' | null>(null)
+  const grab = (edge: 'sidebar') => (): void => {
     dragging.current = edge
     document.body.style.cursor = 'col-resize'
   }
   useEffect(() => {
     const move = (e: MouseEvent): void => {
       if (dragging.current === 'sidebar') window.voyager.layout.sidebarWidth(window.innerWidth - e.clientX)
-      else if (dragging.current === 'rail') window.voyager.layout.railWidth(e.clientX)
     }
     const up = (): void => {
       if (dragging.current) { dragging.current = null; document.body.style.cursor = '' }
@@ -133,6 +141,7 @@ export default function App(): JSX.Element {
   }
 
   const active = state.tabs.find((t) => t.id === state.activeTabId)
+  const shownSettings = { ...settings, appearance: { ...settings.appearance, compactChrome: !state.bookmarksBarOpen } }
   const close = (): void => setPanel(null)
 
   const mac = window.voyager.platform === 'darwin'
@@ -140,22 +149,11 @@ export default function App(): JSX.Element {
 
   return (
     <div className="shell">
-      {/* Windows and Linux only: the strip the system caption buttons sit in.
-          On macOS the traffic lights live inside the rail, so there is none. */}
-      {!mac && <div className="titlebar" />}
-
+      <BrowserChrome state={state} active={active} crashed={crashed}
+        onPanel={(p) => setPanel(p as PanelName | null)} onOmnibox={openOmnibox}
+        assistantOpen={state.sidebarOpen && sidebarMode === 'chat'}
+        onAssistant={() => { setSidebarMode('chat'); window.voyager.layout.sidebar(!(state.sidebarOpen && sidebarMode === 'chat')) }} />
       <div className="body">
-        {state.railOpen && (
-          <Rail
-            state={state}
-            active={active}
-            crashed={crashed}
-            panel={panel}
-            onPanel={(p) => setPanel(p as PanelName | null)}
-            onOmnibox={openOmnibox}
-          />
-        )}
-        {state.railOpen && <div className="rail-handle" onMouseDown={grab('rail')} />}
         <div className="content">
           {!active && (
             <div className="emptystate">
@@ -171,8 +169,10 @@ export default function App(): JSX.Element {
           {state.split && state.split.tabIds.length > 1 && <SplitHandles split={state.split} />}
           {finding && <FindBar onClose={() => setFinding(false)} />}
 
-          {panel === 'settings' && <Settings settings={settings} update={update} onClose={close} toast={toast} />}
-          {panel === 'privacy' && <Settings settings={settings} update={update} onClose={close} toast={toast} initial="Privacy" />}
+          {panel === 'profiles' && <Profiles profileId={state.profileId} onClose={close} />}
+          {panel === 'import' && <ImportBrowser key={state.profileId} profileName={state.profile.name} onClose={close} />}
+          {panel === 'settings' && <Settings settings={shownSettings} update={update} onClose={close} toast={toast} />}
+          {panel === 'privacy' && <Settings settings={shownSettings} update={update} onClose={close} toast={toast} initial="Privacy" />}
           {panel === 'skills' && <Skills onClose={close} toast={toast} />}
           {panel === 'memory' && <Memory onClose={close} />}
           {panel === 'connectors' && <Connectors onClose={close} toast={toast} />}
@@ -194,12 +194,13 @@ export default function App(): JSX.Element {
         {state.sidebarOpen && (
           <>
             <div className="sidebar-handle" onMouseDown={grab('sidebar')} />
-            <Sidebar
+            {sidebarMode === 'agents' && <Agents key={state.profileId} browser={state} onChat={() => setSidebarMode('chat')} />}
+            <div style={{ display: sidebarMode === 'chat' ? 'contents' : 'none' }}><Sidebar
               profileId={state.profileId}
               width={state.sidebarWidth}
               onPanel={(p) => setPanel(p as PanelName | null)}
               toast={toast}
-            />
+            /></div>
           </>
         )}
       </div>

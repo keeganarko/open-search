@@ -5,31 +5,22 @@ import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
 import { TabManager } from './tabs'
 import type { FullWindowState, PermissionAsk, Profile, SplitLayout } from '@shared/types'
-import { getSettings } from '../store/settings'
+import { getSettings, setSettings } from '../store/settings'
 import { configureSpellcheck } from '../security/spellcheck'
 import { IPC } from '@shared/ipc'
 import * as db from '../store/db'
+import { browserTop } from '@shared/chromeLayout'
+import { cancelChromeImport } from './chromeImport'
 
 /** Chrome geometry. The renderer mirrors these in CSS custom properties. */
 export const CHROME = {
-  /** The left rail: pinned tiles, the omnibox, and the tab list. */
-  rail: 240,
-  /**
-   * Height of the strip kept clear above page content. macOS insets its traffic
-   * lights into the rail's own top padding, so nothing is reserved there and the
-   * page runs to the top of the window. Windows and Linux draw caption buttons
-   * at the top *right* — over the page, if we let them — so those platforms get
-   * a full-width strip the height of the `titleBarOverlay`.
-   */
-  titlebar: process.platform === 'darwin' ? 0 : 38,
-  get top(): number { return this.titlebar },
-  railMin: 190,
-  railMax: 380,
   sidebarMin: 320,
   sidebarMax: 760,
   sidebarDefault: 400,
   splitGap: 8
 }
+
+const liveWindows = new Set<VoyagerWindow>()
 
 /**
  * `isDestroyed()` is not the whole story: between a renderer dying and its view
@@ -73,10 +64,9 @@ export class VoyagerWindow extends EventEmitter {
     return !wc.isDestroyed() && this.uiUrls.get(wc.id) === wc.getURL().split('#')[0]
   }
 
-  private sidebarOpen = true
+  private sidebarOpen = false
   private sidebarWidth = CHROME.sidebarDefault
-  private railOpen = true
-  private railWidth = CHROME.rail
+  private panelVisible = false
   private split: SplitLayout | null = null
   /** Read by the permission code to tell "my sheet" from someone else's. */
   overlayMode: OverlayMode = { kind: 'closed' }
@@ -110,7 +100,7 @@ export class VoyagerWindow extends EventEmitter {
             titleBarOverlay: {
               color: dark ? '#141416' : '#f6f6f7',
               symbolColor: dark ? '#e8e6e1' : '#1b1a17',
-              height: 38
+              height: 40
             }
           }),
       backgroundColor: dark ? '#141416' : '#f6f6f7',
@@ -143,6 +133,7 @@ export class VoyagerWindow extends EventEmitter {
     this.overlay.setVisible(false)
 
     this.tabs = new TabManager(profile, key)
+    liveWindows.add(this)
     this.wireTabs()
     const unwatchBookmarks = db.watchBookmarks((profileId) => {
       if (this.profile.id !== profileId) return
@@ -154,6 +145,8 @@ export class VoyagerWindow extends EventEmitter {
     this.window.on('resize', () => this.layout())
     this.window.on('enter-full-screen', () => this.layout())
     this.window.on('leave-full-screen', () => this.layout())
+    if (!mac) this.window.setAutoHideMenuBar(true)
+    if (!mac) this.window.setMenuBarVisibility(false)
     // Whether these tabs are kept for next launch depends on why the window is
     // closing, which only the app knows. It decides; this just announces.
     this.window.on('close', () => { this.emit('closing') })
@@ -174,6 +167,8 @@ export class VoyagerWindow extends EventEmitter {
       nativeTheme.removeListener('updated', this.themeUpdated)
       if (this.splashTimer) clearTimeout(this.splashTimer)
       this.splashTimer = null
+      cancelChromeImport(this)
+      liveWindows.delete(this)
       this.emit('closed')
     })
   }
@@ -209,13 +204,13 @@ export class VoyagerWindow extends EventEmitter {
 
   private contentRect(): Rectangle {
     const [w, h] = this.window.getContentSize()
-    const sidebar = this.sidebarOpen ? this.sidebarWidth : 0
-    const rail = this.railOpen ? this.railWidth : 0
+    const sidebar = this.sidebarOpen ? this.effectiveSidebarWidth() : 0
+    const top = browserTop(!getSettings().appearance.compactChrome)
     return {
-      x: rail,
-      y: CHROME.top,
-      width: Math.max(0, w - rail - sidebar),
-      height: Math.max(0, h - CHROME.top)
+      x: 0,
+      y: top,
+      width: Math.max(0, w - sidebar),
+      height: Math.max(0, h - top)
     }
   }
 
@@ -260,7 +255,7 @@ export class VoyagerWindow extends EventEmitter {
     }
 
     const rect = this.contentRect()
-    const visible = this.visibleTabIds()
+    const visible = this.panelVisible ? [] : this.visibleTabIds()
 
     // Detach everything not on screen so offscreen tabs stop compositing.
     for (const id of [...this.attached]) {
@@ -279,7 +274,7 @@ export class VoyagerWindow extends EventEmitter {
       : visible.map(() => 1 / visible.length)
 
     const gap = visible.length > 1 ? CHROME.splitGap : 0
-    const usable = rect.width - gap * (visible.length - 1)
+    const usable = Math.max(0, rect.width - gap * (visible.length - 1))
     let x = rect.x
 
     visible.forEach((id, i) => {
@@ -321,21 +316,25 @@ export class VoyagerWindow extends EventEmitter {
   }
 
   setSidebarWidth(px: number): void {
+    if (!Number.isFinite(px)) return
     this.sidebarWidth = Math.max(CHROME.sidebarMin, Math.min(CHROME.sidebarMax, Math.round(px)))
     this.layout()
     this.pushState()
   }
 
-  toggleRail(open?: boolean): void {
-    this.railOpen = open ?? !this.railOpen
-    this.layout()
-    this.pushState()
+  private effectiveSidebarWidth(): number {
+    return Math.max(0, Math.min(this.sidebarWidth, this.window.getContentSize()[0] - 320))
   }
 
-  setRailWidth(px: number): void {
-    this.railWidth = Math.max(CHROME.railMin, Math.min(CHROME.railMax, Math.round(px)))
+  toggleBookmarksBar(): void {
+    setSettings({ appearance: { compactChrome: !getSettings().appearance.compactChrome } } as any)
+    for (const win of liveWindows) { win.layout(); win.pushState() }
+  }
+
+  setPanelVisible(open: boolean): void {
+    this.panelVisible = open
     this.layout()
-    this.pushState()
+    if (open) this.focusChrome()
   }
 
   setSplit(tabIds: string[]): void {
@@ -417,6 +416,8 @@ export class VoyagerWindow extends EventEmitter {
   // ——— profile ————————————————————————————————————————————
 
   switchProfile(profile: Profile): void {
+    this.emit('profile-changing')
+    cancelChromeImport(this)
     db.ensureBookmarkShortcuts(profile.id)
     this.tabs.persist()
     this.tabs.destroy()
@@ -437,9 +438,8 @@ export class VoyagerWindow extends EventEmitter {
       activeTabId: this.tabs.activeId,
       split: this.split,
       sidebarOpen: this.sidebarOpen,
-      sidebarWidth: this.sidebarWidth,
-      railOpen: this.railOpen,
-      railWidth: this.railWidth,
+      sidebarWidth: this.effectiveSidebarWidth(),
+      bookmarksBarOpen: !getSettings().appearance.compactChrome,
       tabs: this.tabs.list(),
       groups: this.tabs.groups,
       profile: this.profile,

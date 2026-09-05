@@ -9,8 +9,9 @@ function groups(): [string, [string, string][]][] {
   ['Voyager', [
     [mod('K'), 'Ask Voyager about this page'],
     [shift('K'), 'Show or hide the sidebar'],
-    [mod('P'), 'Command palette'],
-    [shift('B'), 'Morning brief']
+    [shift('A'), 'Open Agents'],
+    [shift('L'), 'Command palette'],
+    [shift('B'), 'Show or hide bookmarks bar']
   ]],
   ['Tabs', [
     [mod('T'), 'New tab'],
@@ -26,6 +27,7 @@ function groups(): [string, [string, string][]][] {
     [mod('R'), 'Reload'],
     [shift('R'), 'Hard reload'],
     [mod('F'), 'Find in page'],
+    [mod('P'), 'Print'],
     [mod('D'), 'Bookmark'],
     [`${mod('[')} / ${mod(']')}`, 'Back / forward'],
     [`${mod('+')} / ${mod('−')} / ${mod('0')}`, 'Zoom']

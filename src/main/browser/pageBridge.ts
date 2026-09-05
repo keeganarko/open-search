@@ -9,6 +9,7 @@ import type { WebContents } from 'electron'
 const PRELOAD_WORLD_ID = 999
 
 type PageMethod = 'extract' | 'selection' | 'insertText' | 'selectionRect' | 'hasLoginForm' | 'meta'
+  | 'agentSnapshot' | 'agentPrepare' | 'agentAct' | 'agentStartRecording' | 'agentRecording' | 'agentStopRecording' | 'agentDiagnostics'
 
 export async function callPage<T>(
   webContents: WebContents,

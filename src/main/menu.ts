@@ -5,6 +5,8 @@ import { post, type VoyagerWindow } from './browser/window'
 import { openExternal } from './browser/session'
 import * as db from './store/db'
 import { getSettings, setSettings } from './store/settings'
+import { IPC } from '@shared/ipc'
+import { pageAgents } from './agent/agentRuntime'
 
 type GetWindow = () => VoyagerWindow | null
 
@@ -161,8 +163,8 @@ export function buildAppMenu(getWindow: GetWindow): void {
         },
         { type: 'separator' },
         {
-          label: 'Toggle Tab Rail', accelerator: 'CmdOrCtrl+S',
-          click: () => w()?.toggleRail()
+          label: 'Show Bookmarks Bar', accelerator: 'CmdOrCtrl+Shift+B',
+          click: () => w()?.toggleBookmarksBar()
         },
         {
           label: 'Toggle Voyager Sidebar', accelerator: 'CmdOrCtrl+Shift+K',
@@ -272,7 +274,11 @@ export function buildAppMenu(getWindow: GetWindow): void {
           click: () => { w()?.toggleSidebar(true); send('voyager:focus-composer') }
         },
         {
-          label: 'Command Palette', accelerator: 'CmdOrCtrl+P',
+          label: 'Agents', accelerator: 'CmdOrCtrl+Shift+A',
+          click: () => { w()?.toggleSidebar(true); w()?.focusChrome(); send(IPC.agentsOpen) }
+        },
+        {
+          label: 'Command Palette', accelerator: 'CmdOrCtrl+Shift+L',
           click: () => w()?.showOverlay({ kind: 'palette' })
         },
         {
@@ -284,7 +290,7 @@ export function buildAppMenu(getWindow: GetWindow): void {
         { label: 'Skills…', click: () => send('voyager:open-skills') },
         { label: 'Memory…', click: () => send('voyager:open-memory') },
         { label: 'Connectors…', click: () => send('voyager:open-connectors') },
-        { label: 'Morning Brief', accelerator: 'CmdOrCtrl+Shift+B', click: () => send('voyager:open-brief') },
+        { label: 'Morning Brief', click: () => send('voyager:open-brief') },
         { type: 'separator' },
         {
           label: 'Pause Page Reading',
@@ -292,6 +298,7 @@ export function buildAppMenu(getWindow: GetWindow): void {
           checked: getSettings().privacy.paused,
           click: (item) => {
             setSettings({ privacy: { paused: item.checked } } as any)
+            pageAgents.revokeAll('Page reading settings changed. Start again to grant access.')
             send('voyager:set-paused', item.checked)
           }
         }
@@ -313,7 +320,8 @@ export function buildAppMenu(getWindow: GetWindow): void {
         {
           label: 'Show All Bookmarks', accelerator: 'CmdOrCtrl+Shift+O',
           click: () => send('voyager:open-bookmarks')
-        }
+        },
+        { label: 'Import from Chrome…', click: () => send('voyager:open-import') }
       ]
     },
     {
@@ -333,6 +341,68 @@ export function buildAppMenu(getWindow: GetWindow): void {
   ]
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+/** Native menus paint above page views and keep keyboard navigation accessible. */
+export function showBrowserMenu(win: VoyagerWindow): void {
+  const panel = (name: string) => () => post(win.chrome.webContents, `voyager:open-${name}`)
+  Menu.buildFromTemplate([
+    { label: 'New tab', click: () => win.tabs.create({}) },
+    { label: 'New window', click: () => openNewWindow() },
+    { label: 'Reopen closed tab', click: () => win.tabs.reopenClosed() },
+    { type: 'separator' },
+    { label: 'History', click: panel('history') },
+    { label: 'Downloads', click: panel('downloads') },
+    { label: 'Bookmarks', click: panel('bookmarks') },
+    { label: 'Show bookmarks bar', type: 'checkbox', checked: win.state().bookmarksBarOpen, click: () => win.toggleBookmarksBar() },
+    { label: 'Import from Chrome…', click: panel('import') },
+    { type: 'separator' },
+    { label: 'Zoom in', click: () => zoomBy(win, 0.5) },
+    { label: 'Zoom out', click: () => zoomBy(win, -0.5) },
+    { label: 'Print…', click: () => win.tabs.active()?.view.webContents.print({ silent: false }) },
+    { label: 'Find in page…', click: panel('find') },
+    { label: 'Split with next tab', click: () => splitWithNext(win) },
+    { label: 'Clear split', enabled: !!win.state().split, click: () => win.clearSplit() },
+    { type: 'separator' },
+    { label: 'Voyager', submenu: [
+      { label: 'Agents', click: () => { win.toggleSidebar(true); win.focusChrome(); post(win.chrome.webContents, IPC.agentsOpen) } },
+      { label: 'Ask Voyager', click: () => { win.toggleSidebar(true); post(win.chrome.webContents, 'voyager:focus-composer') } },
+      { label: 'Organize tabs', click: () => post(win.chrome.webContents, 'voyager:auto-organize') },
+      { label: 'Tidy tabs', click: panel('tidy') },
+      ...[['Skills', 'skills'], ['Memory', 'memory'], ['Connectors', 'connectors'], ['Morning brief', 'brief'], ['Compose a deck', 'deck-composer']]
+        .map(([label, name]) => ({ label, click: panel(name) }))
+    ] },
+    { label: 'Settings', click: panel('settings') },
+    { label: 'Keyboard shortcuts', click: panel('shortcuts') }
+  ]).popup({ window: win.window })
+}
+
+export function showProfileMenu(win: VoyagerWindow, switchProfile: (id: string) => void): void {
+  Menu.buildFromTemplate([
+    { label: 'Voyager profiles', enabled: false },
+    ...db.listProfiles().map((p) => ({ label: p.name, type: 'radio' as const, checked: p.id === win.profile.id,
+      click: () => switchProfile(p.id) })),
+    { type: 'separator' },
+    { label: 'Import from Chrome…', click: () => post(win.chrome.webContents, 'voyager:open-import') },
+    { label: 'Manage profiles', click: () => post(win.chrome.webContents, 'voyager:open-profiles') }
+  ]).popup({ window: win.window })
+}
+
+export function showTabMenu(win: VoyagerWindow, id: string): void {
+  const tab = win.tabs.get(id)
+  if (!tab) return
+  Menu.buildFromTemplate([
+    { label: 'Duplicate', click: () => win.tabs.duplicate(id) },
+    { label: tab.state.pinned ? 'Unpin tab' : 'Pin tab', click: () => win.tabs.setPinned(id, !tab.state.pinned) },
+    { label: tab.state.muted ? 'Unmute tab' : 'Mute tab', click: () => win.tabs.setMuted(id, !tab.state.muted) },
+    { label: 'Add to group', submenu: [
+      { label: 'New group', click: () => { const g = win.tabs.createGroup('New group', '#6366f1'); win.tabs.assign([id], g.id) } },
+      ...win.tabs.groups.map((g) => ({ label: g.title, click: () => win.tabs.assign([id], g.id) })),
+      { label: 'Remove from group', enabled: !!tab.state.groupId, click: () => win.tabs.assign([id], null) }
+    ] },
+    { type: 'separator' },
+    { label: 'Close tab', click: () => win.tabs.close(id) }
+  ]).popup({ window: win.window })
 }
 
 function zoomBy(win: VoyagerWindow | null, delta: number): void {

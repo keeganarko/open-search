@@ -21,6 +21,7 @@ import { loadInto } from './browser/extensions'
 import { mcp } from './agent/mcp'
 import { generateBrief, existingBrief } from './agent/brief'
 import { engine } from './agent/engine'
+import { pageAgents } from './agent/agentRuntime'
 import { initializeUpdates } from './security/updates'
 import { initializeThreats } from './security/threats'
 import { configureSpellcheck } from './security/spellcheck'
@@ -269,6 +270,7 @@ app.on('before-quit', async (event) => {
   if (cleanedUp) return
   event.preventDefault()
   cleanedUp = true
+  pageAgents.shutdown()
   for (const w of windows) w.tabs.persist()
   const settings = getSettings()
   if (settings.privacy.clearOnQuit) {

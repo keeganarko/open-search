@@ -71,8 +71,10 @@ Before opening a pull request, run `npm run typecheck`, `npm test`, and
   and up to four resizable panes.
 - Profiles with independent cookies, browsing data, history, saved logins,
   tabs, groups, permissions, zoom levels, bookmarks, and assistant memory.
-- A vertical workspace rail with pinned sites, navigation, search, tabs, and
-  tool panels.
+- Horizontal tabs, a navigation toolbar, an optional bookmarks bar, profile
+  controls, and a three-dot menu. The assistant opens on the right when requested.
+- Chrome profile import for bookmarks and history, bookmark HTML import, and
+  password CSV import, with a preview and duplicate handling.
 - Full-text history search, bookmarks, downloads, print/PDF, find in page,
   per-origin zoom, custom new-tab and error pages, and popup support.
 - Ad and tracker blocking with live blocked-request counts and runtime toggles.
@@ -88,23 +90,45 @@ Before opening a pull request, run `npm run typecheck`, `npm test`, and
 
 ## Favorite bookmarks
 
-The top-left **Favorites** row starts with Gmail and YouTube. Clicking a favorite
+The **bookmarks bar** starts with Gmail and YouTube. Clicking a bookmark
 opens its saved URL, or activates a tab already at that URL in the same window.
 Closing the tab does not remove the bookmark.
 
-- Select **+ → Add current page**, or enter a website address and an optional name.
-- Select **Edit** (or right-click an icon), then **×** to remove its icon. The
-  bookmark remains in the bookmark list.
-- Select **Edit → Choose from bookmarks** to add or remove existing bookmarks
-  directly in the rail. The Bookmarks panel also has a favorite star per item.
-- Favorites belong to the current profile, persist across restarts, and travel
-  in encrypted bookmark sync. Up to 24 can appear in each profile; additional
-  imported items remain ordinary bookmarks.
+- Click the address bar's star (or press **Ctrl/Cmd+D**) to save a page.
+- Open **All bookmarks**, then star an item to prioritize it at the start of the
+  bar. Unstarring preserves the bookmark; **×** deletes it.
+- Use **Ctrl/Cmd+Shift+B** to show or hide the bar. Up to 60 bookmarks are shown
+  in its scrollable row; **All bookmarks** includes the rest.
+- Bookmarks belong to the current profile, persist across restarts, and travel
+  in encrypted bookmark sync. Up to 24 may be prioritized as favorites.
 
 Gmail and YouTube use bundled artwork. Other sites use an available safe local
 page icon or a name initial. The favorites row does not contact a favicon service
-or load a destination until you click it. Removed starter shortcuts are not
+or load a destination until you click it. Deleted starter bookmarks are not
 recreated on the next launch.
+
+## Import from Chrome
+
+Open **⋮ → Import from Chrome** or use the entry in Settings. Choose a detected
+Chrome profile, select bookmarks and/or history, then **Review import → Import
+data**. The destination is the current Voyager profile. Use the profile button
+and **Manage profiles** to create or switch destinations first.
+
+If detection finds nothing, choose a profile folder or Chrome's User Data folder.
+Chrome's `chrome://version` page shows the profile path. For data stored only in
+your Google account, first sync it into Chrome on this computer. Quit Chrome if
+history cannot be read.
+
+For exported files, use **Choose HTML** for Chrome bookmark HTML (Chrome bookmark
+JSON is also accepted), or **Choose CSV** for Google Password Manager's password
+export. The CSV contains readable passwords; delete your export after importing.
+Passwords remain in Voyager's encrypted vault and are never assistant context.
+
+Imported history contains the latest visit per URL, within Voyager's retention
+period, with excluded sites omitted. Import does not fetch saved pages or add
+page excerpts. Both bookmarks and history can be searched in the address bar.
+The assistant can search them under the existing AI consent and privacy rules.
+See the [complete import audit](CHROME-IMPORT-AUDIT.md) for transfer limits and tests.
 
 ## Opening experience
 

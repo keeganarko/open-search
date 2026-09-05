@@ -1,4 +1,5 @@
 /** Shared contract between main, preload and renderer. No runtime imports. */
+export type { AgentDefinition, AgentRun, AgentStart, AgentsState } from './agents'
 
 export type ActionClass =
   | 'read'              // inspect scoped browser/connector data
@@ -72,9 +73,7 @@ export interface WindowState {
   split: SplitLayout | null
   sidebarOpen: boolean
   sidebarWidth: number
-  /** The left rail — pinned tiles, omnibox, tab list. */
-  railOpen: boolean
-  railWidth: number
+  bookmarksBarOpen: boolean
 }
 
 // ——— Skills ———————————————————————————————————————————————
@@ -248,7 +247,7 @@ export interface Settings {
   appearance: {
     theme: 'system' | 'light' | 'dark'
     accent: string
-    /** Show the tab strip above or hide it in favour of the command bar. */
+    /** Hide the bookmarks bar; tabs and navigation remain visible. */
     compactChrome: boolean
     /** Play the opening signature when the first window appears. */
     startupSound: boolean
