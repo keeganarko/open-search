@@ -92,6 +92,10 @@ npm run dist:linux  # Linux AppImage
 The [guide](docs/guide.md) covers profiles, privacy, permissions, extensions,
 and the application structure.
 
+The [custom agent architecture](docs/AGENT-ARCHITECTURE.md) explores agents that
+work across selected tabs. It is a proposal; general page automation is not yet
+implemented.
+
 Built by [Keegan Choudhury](https://github.com/keeganarko).
 [MIT License](LICENSE) · [Report a vulnerability privately](SECURITY.md)
 
