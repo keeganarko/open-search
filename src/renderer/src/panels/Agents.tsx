@@ -6,6 +6,7 @@ import { Markdown } from '../markdown'
 
 const host = (url: string): string => { try { return new URL(url).host } catch { return url } }
 const modes: AgentMode[] = ['research', 'workflow', 'lens', 'watch', 'teach', 'diagnose', 'guide']
+const modeNames: Record<AgentMode, string> = { research: 'Research', workflow: 'Website workflow', lens: 'Page views and tables', watch: 'Watch for changes', teach: 'Record a workflow', diagnose: 'Page investigation', guide: 'Guided instructions' }
 const symbols: Record<AgentMode, string> = { research: '↗', workflow: '→', lens: '▤', watch: '◷', teach: '◎', diagnose: '⌘', guide: '◇' }
 const clipboardCell = (value: string): string => {
   const text = value.replace(/[\t\r\n]/g, ' ')
@@ -91,7 +92,7 @@ export default function Agents({ browser, onChat }: { browser: FullWindowState; 
         <h3>{editing.id ? 'Edit agent' : 'Make your own agent'}</h3>
         <label>Name<input required maxLength={100} value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="My research partner" /></label>
         <label>What it does<input maxLength={300} value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} placeholder="A short description" /></label>
-        <label>Capabilities<select value={editing.mode} onChange={(e) => setEditing({ ...editing, mode: e.target.value as AgentMode, steps: e.target.value === 'workflow' ? editing.steps : [] })}>{modes.map((m) => <option key={m} value={m}>{m}</option>)}</select></label>
+        <label>Capabilities<select value={editing.mode} onChange={(e) => setEditing({ ...editing, mode: e.target.value as AgentMode, steps: e.target.value === 'workflow' ? editing.steps : [] })}>{modes.map((m) => <option key={m} value={m}>{modeNames[m]}</option>)}</select></label>
         <label>Instructions<textarea required rows={5} maxLength={8000} value={editing.instructions} onChange={(e) => setEditing({ ...editing, instructions: e.target.value })} placeholder="What should this agent look for or help you do?" /></label>
         <p>Instructions cannot override tab permissions or action approvals.</p>
         <div className="agent-button-row"><button className="btn" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="btn primary" disabled={busy}>Save agent</button></div>

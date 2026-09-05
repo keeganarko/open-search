@@ -1,6 +1,6 @@
 # Agents that work with your tabs
 
-Click **Agents** in the browser controls, or press **Ctrl+Shift+A**
+Click **Agents** beside the address bar, or press **Ctrl+Shift+A**
 (**Command+Shift+A** on macOS). Choose a preset, select up to six open tabs,
 and start. The side panel shows progress and results; hide it to keep browsing.
 The Agents button shows active work and changes to **Review** when an action
@@ -117,8 +117,13 @@ recipes, narrow and wide side panels, and dark mode. Scripted model responses
 exercise orchestration without sending real browsing data to a provider. No
 Anthropic test key was available in this environment; live model quality and
 third-party account workflows still require evaluation with configured providers
-and consenting test accounts. WSL lacks an OS credential vault, so its packaged
-suite cannot establish vault availability; the Windows CI suite checks that.
+and consenting test accounts. The Windows packaged suite passed all 23 checks, including trusted recording
+and approved replay ([evidence run](https://github.com/keeganarko/voyager/actions/runs/33942977973)).
+The source suite passed 167 tests. On this WSL host, 21 of 23 packaged checks
+passed; its OS vault is unavailable and its desktop did not give the test window
+input focus. Those two host-dependent checks passed on Windows. The linked run
+subsequently failed at preview packaging; that was separate from its successful
+security checks.
 
 This is an initial implementation of the [architecture](AGENT-ARCHITECTURE.md).
 The design's arbitrary hierarchical delegation, semantic monitoring, general

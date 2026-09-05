@@ -221,3 +221,10 @@ Keep personal profiles, API tokens, passwords, and signing keys out of Git.
 Use [private vulnerability reporting](../SECURITY.md) for security findings.
 The source/CI changes from the security audit must be reviewed and released;
 existing installers do not update automatically.
+
+## Page agents
+
+Click **Agents** beside the address bar to start a research, page-view, monitoring,
+recording, investigation or guided-workflow task on selected tabs. The panel can
+be hidden while work continues; its toolbar badge shows activity and pending
+reviews. See the [agent guide](AGENT-GUIDE.md) for capabilities and limits.

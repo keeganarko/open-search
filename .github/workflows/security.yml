@@ -83,8 +83,7 @@ jobs:
       # This unsigned preview is separate from the signed release workflow.
       - run: npm run build
       - name: Package Windows preview
-        run: npx electron-builder --win --x64 --dir --publish never -c.directories.output=release/preview
-      - run: node scripts/verify-asar.mjs release/preview/win-unpacked/resources/app.asar
+        run: node scripts/package-preview.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: voyager-windows-preview

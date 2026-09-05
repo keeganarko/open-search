@@ -22,7 +22,7 @@ export function AgentIcon() {
 }
 export default function AgentLauncher({ profileId }: { profileId: string }) {
   const { state } = useAgents(profileId)
-  const active = state.runs.filter((r) => activeAgent(r.status))
+  const active = state.runs.filter((r) => r.windowKey === state.windowKey && activeAgent(r.status))
   const review = active.some((r) => r.status === 'awaiting_approval')
   return <button className={`agent-launcher${review ? ' needs-review' : ''}`} onClick={() => window.voyager.agents.open()}
     title={`Open Agents (${window.voyager.platform === 'darwin' ? '⌘' : 'Ctrl+'}Shift+A)`} aria-label={`Agents${review ? ' · action needs review' : active.length ? ` · ${active.length} active` : ''}`}>
