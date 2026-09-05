@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -10,7 +10,7 @@ vi.mock('../src/main/store/settings', () => ({
   getSettings: () => ({ privacy: { paused: mocks.paused, historyRetentionDays: 90 } }),
   isExcluded: (url: string) => mocks.excluded || url.includes('private.example')
 }))
-import { applyImportPrivacy, chromeRoots, previewImportFile, commitChromeImport, cancelChromeImport, previewChromeProfile } from '../src/main/browser/chromeImport'
+import { applyImportPrivacy, chromeRoots, previewImportFile, commitChromeImport, cancelChromeImport, previewChromeProfile, listChromeProfiles } from '../src/main/browser/chromeImport'
 
 describe('import boundaries', () => {
   const win = (): any => ({ profile: { id: 'work' }, tabs: {}, window: { isDestroyed: () => false } })
@@ -39,6 +39,47 @@ describe('import boundaries', () => {
   it('never accepts arbitrary source paths from the renderer', async () => {
     await expect(previewChromeProfile(win(), { profileId: '/etc/passwd', bookmarks: true, history: false })).rejects.toThrow(/detected/)
     expect(mocks.store).not.toHaveBeenCalled()
+  })
+  it('discovers Google-account-only bookmarks and reads both account and local stores', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'voyager-google-import-'))
+    const data = (title: string) => JSON.stringify({ roots: { bookmark_bar: { name: 'Bookmarks bar', children: [
+      { type: 'url', name: title, url: `https://example.com/${title}` }
+    ] } } })
+    try {
+      const profileDir = join(dir, 'Default')
+      await mkdir(profileDir)
+      await writeFile(join(profileDir, 'AccountBookmarks'), data('Google'))
+      mocks.dialog.mockResolvedValue({ canceled: false, filePaths: [dir] })
+      const w = win()
+      const profiles = await listChromeProfiles(w, true)
+      expect(profiles).toHaveLength(1)
+      expect(profiles![0]).toMatchObject({ bookmarks: true, history: false })
+      const preview = await previewChromeProfile(w, { profileId: profiles![0].id, bookmarks: true, history: false })
+      expect(preview.counts.bookmarks).toBe(1)
+      expect(preview.warnings).toContain('Includes Google account bookmarks saved in this Chrome profile on this computer.')
+      await writeFile(join(profileDir, 'Bookmarks'), data('Local'))
+      const both = await previewChromeProfile(w, { profileId: profiles![0].id, bookmarks: true, history: false })
+      expect(both.counts.bookmarks).toBe(2)
+      expect(mocks.store.mock.calls.at(-1)![1].bookmarks.map((b: any) => b.title)).toEqual(['Local', 'Google'])
+      // Choosing the profile directory directly also works without a local store.
+      await rm(join(profileDir, 'Bookmarks'))
+      mocks.dialog.mockResolvedValue({ canceled: false, filePaths: [profileDir] })
+      expect((await listChromeProfiles(w, true))![0].bookmarks).toBe(true)
+      cancelChromeImport(w)
+    } finally { await rm(dir, { recursive: true, force: true }) }
+  })
+  it.each(['EncryptedAccountBookmarks2', 'EncryptedBookmarks2', 'EncryptedAccountBookmarks', 'EncryptedBookmarks'])('recognizes %s and directs the user to an HTML export', async (filename) => {
+    const dir = await mkdtemp(join(tmpdir(), 'voyager-encrypted-bookmarks-'))
+    try {
+      await writeFile(join(dir, filename), 'opaque fixture')
+      mocks.dialog.mockResolvedValue({ canceled: false, filePaths: [dir] })
+      const w = win()
+      const profiles = await listChromeProfiles(w, true)
+      expect(profiles![0]).toMatchObject({ bookmarks: false, bookmarksEncrypted: true })
+      await expect(previewChromeProfile(w, { profileId: profiles![0].id, bookmarks: true, history: false })).rejects.toThrow(/Export bookmarks as HTML/)
+      expect(mocks.store).not.toHaveBeenCalled()
+      cancelChromeImport(w)
+    } finally { await rm(dir, { recursive: true, force: true }) }
   })
   it('keeps passwords out of preview responses and binds a single-use commit to the window/profile', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'voyager-import-test-'))

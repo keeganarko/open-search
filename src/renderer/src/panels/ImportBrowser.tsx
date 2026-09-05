@@ -47,7 +47,12 @@ export function ImportBrowserContent({ profileName }: { profileName: string }): 
         <div className="import-card"><h3>Import from this computer</h3><p>If your data is saved to Google, first let it sync in Chrome on this computer.</p>
           {profiles.length ? <label className="field"><span>Chrome profile</span><select value={selected} disabled={busy} onChange={(e) => setSelected(e.target.value)}>{profiles.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.directory}</option>)}</select></label>
             : <p className="import-note">{busy ? 'Looking for Chrome profiles…' : 'No Chrome profiles found. Choose your Chrome profile folder, or use an exported file below.'}</p>}
-          <label className="check"><input type="checkbox" checked={bookmarks && !!profile?.bookmarks} disabled={busy || !profile?.bookmarks} onChange={(e) => setBookmarks(e.target.checked)} />Bookmarks and folders</label>
+          <label className="check"><input type="checkbox" aria-describedby="bookmark-import-help" checked={bookmarks && !!profile?.bookmarks} disabled={busy || !profile?.bookmarks} onChange={(e) => setBookmarks(e.target.checked)} />Bookmarks and folders</label>
+          <p className="desc" id="bookmark-import-help">{!profile ? 'Select a Chrome profile to check for bookmarks.' : profile.bookmarks
+            ? 'Includes readable bookmarks saved to your Google account on this computer.'
+            : profile.bookmarksEncrypted ? 'Chrome has encrypted these bookmarks. Export them from Chrome’s bookmark manager, then use Choose HTML below.'
+            : 'No readable bookmarks found in this profile. Choose another Chrome profile, or export bookmarks from Chrome and use Choose HTML below.'}</p>
+          {profile?.bookmarks && profile.bookmarksEncrypted && <p className="import-note">Readable local copies may be older than Chrome’s encrypted bookmarks. Use an HTML export to include its latest saved pages.</p>}
           <label className="check"><input type="checkbox" checked={history && !!profile?.history} disabled={busy || !profile?.history} onChange={(e) => setHistory(e.target.checked)} />Browsing history</label>
           <p className="desc">History follows your retention and excluded-site settings. Quit Chrome if Voyager cannot read its data.</p>
           <div className="row"><button className="btn primary" disabled={busy || !profile || !(bookmarks && profile.bookmarks || history && profile.history)}

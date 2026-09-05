@@ -19,6 +19,9 @@ const profiles = new WeakMap<VoyagerWindow, Map<string, string>>()
 const busy = new WeakSet<VoyagerWindow>()
 const generations = new WeakMap<VoyagerWindow, number>()
 const MAX_FILE = 32 * 1024 * 1024
+const BOOKMARK_FILES = ['Bookmarks', 'AccountBookmarks'] as const
+const ENCRYPTED_BOOKMARK_FILES = ['EncryptedBookmarks2', 'EncryptedAccountBookmarks2', 'EncryptedBookmarks', 'EncryptedAccountBookmarks'] as const
+const ENCRYPTED_BOOKMARK_WARNING = 'Chrome has encrypted bookmark files. Export bookmarks as HTML from Chrome to include its latest saved pages; readable local copies may be older.'
 
 /** Bounded reads keep a replaced or growing file from allocating unbounded memory. */
 async function readText(path: string): Promise<string> {
@@ -46,10 +49,12 @@ export function chromeRoots(platform: string, home: string, env: NodeJS.ProcessE
 }
 
 const hasFile = async (path: string): Promise<boolean> => { try { return (await stat(path)).isFile() } catch { return false } }
+const hasAnyFile = async (root: string, names: readonly string[]): Promise<boolean> =>
+  (await Promise.all(names.map((name) => hasFile(join(root, name))))).some(Boolean)
 
 async function discover(root: string, direct = false): Promise<{ public: ChromeProfile; path: string }[]> {
   let names: string[]
-  if (direct && (await hasFile(join(root, 'Bookmarks')) || await hasFile(join(root, 'History')))) names = ['']
+  if (direct && await hasAnyFile(root, [...BOOKMARK_FILES, ...ENCRYPTED_BOOKMARK_FILES, 'History'])) names = ['']
   else {
     try { names = (await readdir(root, { withFileTypes: true })).filter((d) => d.isDirectory() && /^(Default|Profile \d+)$/.test(d.name)).map((d) => d.name).sort() }
     catch { return [] }
@@ -59,11 +64,13 @@ async function discover(root: string, direct = false): Promise<{ public: ChromeP
   const result: { public: ChromeProfile; path: string }[] = []
   for (const name of names.slice(0, 100)) {
     const path = join(root, name)
-    const [bookmarks, history] = await Promise.all([hasFile(join(path, 'Bookmarks')), hasFile(join(path, 'History'))])
-    if (!bookmarks && !history) continue
+    const [bookmarks, bookmarksEncrypted, history] = await Promise.all([
+      hasAnyFile(path, BOOKMARK_FILES), hasAnyFile(path, ENCRYPTED_BOOKMARK_FILES), hasFile(join(path, 'History'))
+    ])
+    if (!bookmarks && !bookmarksEncrypted && !history) continue
     const display = metadata?.[name]?.name
     result.push({ path, public: { id: randomUUID(), name: typeof display === 'string' ? display.slice(0, 200) : name || basename(root),
-      directory: name || basename(root), bookmarks, history } })
+      directory: name || basename(root), bookmarks, bookmarksEncrypted, history } })
   }
   return result
 }
@@ -155,10 +162,19 @@ export async function previewChromeProfile(win: VoyagerWindow, selection: Chrome
     const data: ImportData = { bookmarks: [], history: [], passwords: [], skipped: 0 }
     const warnings: string[] = []
     if (selection.bookmarks) {
-      let text: string
-      try { text = await readText(join(path, 'Bookmarks')) } catch { throw new Error('Chrome bookmarks could not be read. Quit Chrome and try again, or import a bookmark HTML export.') }
-      const parsed = parseChromeBookmarks(text)
-      data.bookmarks = parsed.rows; data.skipped += parsed.skipped
+      let found = false
+      for (const name of BOOKMARK_FILES) {
+        if (!await hasFile(join(path, name))) continue
+        found = true
+        let text: string
+        try { text = await readText(join(path, name)) } catch { throw new Error('Chrome bookmarks could not be read. Quit Chrome and try again, or import a bookmark HTML export.') }
+        const parsed = parseChromeBookmarks(text)
+        data.bookmarks.push(...parsed.rows); data.skipped += parsed.skipped
+        if (data.bookmarks.length > MAX_IMPORT_ROWS) throw new Error('This profile has more than 50,000 bookmarks. Export a smaller bookmark HTML file to import.')
+        if (name === 'AccountBookmarks') warnings.push('Includes Google account bookmarks saved in this Chrome profile on this computer.')
+      }
+      if (await hasAnyFile(path, ENCRYPTED_BOOKMARK_FILES)) warnings.push(ENCRYPTED_BOOKMARK_WARNING)
+      if (!found) throw new Error('No readable Chrome bookmarks found. Export bookmarks as HTML from Chrome, then choose that file in Voyager.')
     }
     if (selection.history) {
       const parsed = readChromeHistory(join(path, 'History'))

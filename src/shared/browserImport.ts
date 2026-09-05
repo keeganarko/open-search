@@ -4,6 +4,7 @@ export interface ChromeProfile {
   name: string
   directory: string
   bookmarks: boolean
+  bookmarksEncrypted?: boolean
   history: boolean
 }
 
